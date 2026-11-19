@@ -112,7 +112,18 @@
 }
 ```
 
-> 需求 FR-01：**不开放自主注册**。账户只能由管理员创建。所以没有 `/register`。
+> 需求 FR-01：**不开放自主注册**。账户只能由管理员创建。
+>
+> 但《登录界面.docx》要求登录页有「注册」入口，所以提供了
+> `POST /api/auth/register`，**由开关 `ALLOW_SELF_REGISTER` 控制，默认关闭**：
+>
+> | 情形 | 返回 |
+> |---|---|
+> | 开关关闭（默认） | `403 REGISTER_DISABLED`「本系统不开放自主注册，请联系管理员开通账号」 |
+> | 开关打开 | `201` + 用户信息；用户名重复返回 `409 AUTH_USERNAME_TAKEN` |
+>
+> 自主注册只能得到 `user` 角色，不可能注册出管理员。
+> 详见 `docs/frontend.md` §4。
 
 ---
 
@@ -144,6 +155,7 @@
 | DELETE | `/api/media/{id}` | 删除（级联删任务/区域/告警） |
 | GET | `/api/media/{id}/image` | 原始画面（画框用；**仅图片类型**，视频返回 422） |
 | GET | `/api/media/{id}/frames/{frame_index}` | 处理过的某一帧（视频取图用这个） |
+| GET | `/api/media/{id}/video` | 原始视频流（支持 HTTP Range，可拖进度条跳看） |
 
 **上传字段**
 
@@ -428,6 +440,72 @@ pending ──► running ──► succeeded
 
 > 这就是"解耦"的核心：**把不确定的东西关进几个字段和配置项里**，
 > 让它们的变化不会传导到接口和页面。
+
+---
+
+## 12. 独立前端（`frontend/app`）带来的增补
+
+为支撑《登录界面.docx》里的三个业务界面，补了四处。**都是向后兼容的新增字段/接口**，
+原有调用方不受影响。
+
+### 12.1 `TaskOut` 增加 `media` 摘要
+
+任务列表要显示媒体名/分辨率/帧率/帧数/时长。放进任务响应里，
+避免前端为每条任务再查一次媒体（N 个任务 = N 次请求）。
+
+```json
+{
+  "id": 17,
+  "media_id": 14,
+  "media": {
+    "id": 14,
+    "original_name": "site_night.mp4",
+    "media_type": "video",
+    "width": 640, "height": 360,
+    "fps": 25.0,
+    "total_frames": 60,
+    "duration_ms": 2400,
+    "frame_stride": 5,
+    "has_ir": false
+  }
+}
+```
+
+### 12.2 `AlertOut` 增加两个展示字段
+
+```json
+{
+  "id": 301,
+  "media_name": "site_night.mp4",
+  "snapshot_url": "/media/14/frames/35"
+}
+```
+
+- `snapshot_url` 是**相对接口路径**（不含 `/api`），前端拼 base 后带 token 取图；
+  该帧图不存在时为 `null`。
+- 媒体名是**批量查询**后映射的，不做 N+1。
+
+### 12.3 媒体资源的取用方式（重要）
+
+`/media/{id}/image`、`/media/{id}/frames/{n}`、`/media/{id}/video` 都需要鉴权，
+而 `<img src>` / `<video src>` **带不了 `Authorization` 头**，直接用会 401。
+
+前端必须先用带 token 的 `fetch` 取回 blob，再 `URL.createObjectURL()` 交给标签：
+
+```js
+const res = await fetch(API_BASE + '/api' + path, {
+  headers: { Authorization: 'Bearer ' + token },
+});
+const url = URL.createObjectURL(await res.blob());
+```
+
+> 更正规的方案是签发短时效签名 URL（token 不进 URL）。现阶段用 blob，
+> 代价是视频要整段进内存，长视频需要升级。
+
+### 12.4 跨域
+
+前端跑在 `5173`、后端在 `8000`，属于跨域。后端已开 CORS，只放行
+`settings.cors_origins` 里列出的来源（默认 5173 / 8000），**不使用通配符**。
 
 ---
 

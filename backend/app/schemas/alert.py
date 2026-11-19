@@ -33,6 +33,11 @@ class AlertOut(BaseModel):
     last_seen_at: datetime
     created_at: datetime
 
+    # ---- 由接口层补齐的展示字段（不在表里）----
+    # 缩略图地址：后端生成，前端拿去带 token 取图
+    snapshot_url: str | None = None
+    media_name: str | None = None
+
 
 class AlertConfirmOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)

@@ -14,6 +14,12 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class RegisterIn(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+    display_name: str | None = Field(default=None, max_length=64)
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>反无人机检测与预警系统</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◤◢</span>
+      <span>反无人机检测与预警系统</span>
+    </div>
+    <nav class="nav" id="nav">
+      <a href="#/tasks" data-nav="tasks">检测任务</a>
+      <a href="#/alerts" data-nav="alerts">报警情况</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="who" id="who"></span>
+      <button class="btn ghost sm" id="btnLogout" hidden>退出</button>
+    </div>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <div id="toast" class="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

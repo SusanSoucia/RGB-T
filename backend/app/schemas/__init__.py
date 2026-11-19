@@ -4,11 +4,11 @@ API 层只从这里 import，避免各处散落地引用具体模块。
 """
 
 from app.schemas.alert import AlertConfirmOut, AlertOut
-from app.schemas.auth import LoginIn, TokenOut, UserOut
+from app.schemas.auth import LoginIn, RegisterIn, TokenOut, UserOut
 from app.schemas.common import Page
 from app.schemas.media import MediaOut
 from app.schemas.region import RegionIn, RegionOut
-from app.schemas.task import DetectionOut, FrameOut, TaskCreate, TaskOut
+from app.schemas.task import DetectionOut, FrameOut, MediaBrief, TaskCreate, TaskOut
 
 __all__ = [
     "AlertConfirmOut",
@@ -16,8 +16,10 @@ __all__ = [
     "DetectionOut",
     "FrameOut",
     "LoginIn",
+    "MediaBrief",
     "MediaOut",
     "Page",
+    "RegisterIn",
     "RegionIn",
     "RegionOut",
     "TaskCreate",

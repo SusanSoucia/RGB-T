@@ -179,6 +179,31 @@ def delete_media(
     return Response(status_code=204)
 
 
+@router.get("/{media_id}/video", summary="原始视频流（用于前端播放与跳看）")
+def get_media_video(
+    media_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """返回原始视频文件。
+
+    Starlette 的 FileResponse 支持 HTTP Range，所以 <video> 能拖进度条跳看。
+    注意：<video src> 本身带不了 Authorization 头，前端应先用带鉴权的 fetch
+    取回 blob 再播放（见 frontend/app/app.js）。
+    """
+    media = _get_owned_media(db, media_id, user)
+    if media.media_type != MediaType.video:
+        raise ApiError("MEDIA_UNSUPPORTED_FORMAT", "该媒体不是视频", 422)
+    path = Path(settings.upload_dir) / media.stored_path
+    if not path.exists():
+        raise not_found("视频文件")
+    return FileResponse(
+        path,
+        media_type=media.mime_type or "video/mp4",
+        filename=media.original_name,
+    )
+
+
 @router.get("/{media_id}/frames/{frame_index}", summary="处理过的某一帧")
 def get_frame_image(
     media_id: int,

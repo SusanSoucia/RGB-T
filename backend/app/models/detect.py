@@ -91,6 +91,8 @@ class DetectTask(Base, TimestampMixin):
     frame_results: Mapped[list["FrameResult"]] = relationship(
         back_populates="task", cascade="all, delete-orphan", passive_deletes=True
     )
+    # 任务列表要显示媒体名/分辨率/帧率等，用 joined 一次查出来，避免 N+1
+    media: Mapped["Media"] = relationship(lazy="joined")
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<DetectTask {self.id} {self.requested_mode}->{self.actual_mode} {self.status}>"

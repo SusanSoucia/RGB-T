@@ -6,12 +6,33 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import DetectionMode, ReferenceModality, RequestMode, TaskStatus
+from app.models.enums import DetectionMode, MediaType, ReferenceModality, RequestMode, TaskStatus
 
 
 class TaskCreate(BaseModel):
     media_id: int
     requested_mode: RequestMode = RequestMode.auto
+
+
+class MediaBrief(BaseModel):
+    """任务列表要显示的媒体信息。
+
+    放进任务响应而不是让前端再查一次，是为了避免 N+1：
+    20 条任务就少发 20 个请求。
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original_name: str
+    media_type: MediaType
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    total_frames: int | None = None
+    duration_ms: int | None = None
+    frame_stride: int = 1
+    has_ir: bool = False
 
 
 class TaskOut(BaseModel):
@@ -20,6 +41,7 @@ class TaskOut(BaseModel):
     id: int
     owner_id: int
     media_id: int
+    media: MediaBrief | None = None
     requested_mode: RequestMode
     actual_mode: DetectionMode | None = None
     decision_reason: str | None = None

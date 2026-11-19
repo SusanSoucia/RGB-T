@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -43,9 +44,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="UAV Alert API",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
     description="反无人机检测与预警系统。接口契约见 docs/api.md。",
+)
+
+# 独立前端（frontend/app，跑在 5173）与后端不同源，需要放行跨域。
+# 只放行配置里列出的来源，不用通配符——避免把带凭证的接口暴露给任意站点。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
 )
 
 

@@ -326,8 +326,13 @@ uav-alert-system/
 │   │   └── scripts/          # seed_admin / smoke_test / e2e_test
 │   └── tests/
 ├── frontend/                 # 前端
-│   └── mvp/                  # ★ 单文件 MVP 控制台（后端托管在 /ui，无需构建）
-│       └── index.html
+│   ├── app/                  # ★ 独立前端（登录/注册 + 三个业务界面，跑在 5173）
+│   │   ├── index.html
+│   │   ├── style.css
+│   │   └── app.js
+│   └── mvp/                  # 早期 MVP 控制台（后端托管在 /ui，含上传与画框）
+│       ├── index.html
+│       └── test/draw.test.js # 画框逻辑的无浏览器回归测试
 ├── ml/                       # 算法（独立于 Web，可单独跑）
 │   ├── requirements.txt
 │   ├── datasets/
@@ -341,6 +346,7 @@ uav-alert-system/
 ├── data/                     # 数据集（不入库，.gitignore）
 ├── docs/                     # 需求/设计/测试报告、实验记录
 │   ├── architecture.md       # ★ 后端分层与接手说明（组员先看这个）
+│   ├── frontend.md           # ★ 独立前端：页面/接口对应、注册冲突、两个技术坑
 │   ├── api.md                # 接口与业务约定（前后端并行开发的契约）
 │   ├── database.md           # 表结构与迁移
 │   ├── docker-dev.md         # 环境搭建
@@ -353,21 +359,28 @@ uav-alert-system/
 
 ---
 
-## 8.1 当前可运行状态（MVP）
+## 8.1 当前可运行状态
 
-**已经能端到端跑通**（模型用桩替代，检测逻辑真实）：
+**已经能端到端跑通**（模型用桩替代，检测逻辑真实）。现在有**两套前端**：
 
 ```powershell
-docker compose up -d
-# 打开 http://localhost:8000/ui/
-# 用 admin / Admin@12345 登录 → 上传图片或视频 → 画区域 → 开始检测 → 看结果 → 确认告警
+docker compose up -d                        # 后端 8000 + 数据库
+docker compose --profile web up -d          # 独立前端 5173
+
+# ① 独立前端（按《登录界面.docx》实现）：http://localhost:5173/
+#    登录/注册 + 检测任务列表 + 检测详情(播放/进度/报警标记) + 报警画廊
+# ② MVP 控制台（含上传与画框）：http://localhost:8000/ui/
 ```
+
+两套前端共用同一套后端接口。上传入口目前在 MVP 控制台里
+（业务界面文档未要求上传，见 `docs/frontend.md` §6）。
 
 接口文档：<http://localhost:8000/docs>
 
 | 能力 | 状态 |
 |---|---|
 | 登录 / JWT / 越权拦截 | ✅ |
+| 注册（受开关控制，默认关闭以符合 FR-01） | ✅ 见 `docs/frontend.md` §4 |
 | 上传图片或视频（可成对上传红外） | ✅ |
 | **自适应选模态**（亮度/对比度/清晰度 → rgb/ir/fusion） | ✅ 逻辑真实，阈值待标定 |
 | 手动模式校验（输入不匹配拒绝） | ✅ |
@@ -376,6 +389,7 @@ docker compose up -d
 | 侵入判定（框中心 ∈ 区域） | ✅ |
 | 告警生成 / 归并 / 确认 | ✅ |
 | 帧级结果（含无目标帧） | ✅ |
+| 视频流播放与跳看（HTTP Range） | ✅ 需 H.264 编码 |
 | 检测模型 | ⚠️ **桩**，等训练完成后切 `DETECTOR_BACKEND=ultralytics` |
 | Excel 导出 / 用户管理 / 异步任务 | ❌ 未做，见 `docs/architecture.md` §6 |
 

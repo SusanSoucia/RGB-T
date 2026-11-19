@@ -18,6 +18,21 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 720
     jwt_algorithm: str = "HS256"
 
+    # 是否开放自主注册。
+    # ⚠️ 需求说明书 FR-01 明确"不开放自主注册"，账户由管理员创建，
+    # 验收时也会检查这一点。所以默认 False：注册页可以展示，
+    # 但后端会返回 REGISTER_DISABLED，提示联系管理员。
+    # 演示/比赛需要开放时再临时打开，不要提交成 True。
+    allow_self_register: bool = False
+
+    # 前端独立部署时的跨域来源（独立前端跑在 5173）
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+
     # 存储（与 compose 里的挂载点一致）
     upload_dir: str = "/data/uploads"
     snapshot_dir: str = "/data/uploads/snapshots"
