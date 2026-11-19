@@ -56,6 +56,8 @@ services:
       # 挂到 /app/ml 而不是 /opt/ml：这样 `python -m ml.datasets.xxx` 能直接跑，
       # PYTHONPATH=/app 就够，不用再多一个 sys.path 条目
       - ./ml:/app/ml:ro
+      # MVP 单文件前端由后端直接托管（/ui），换成 Vue 后改为指向构建产物
+      - ./frontend:/app/frontend:ro
       - ./data/uploads:/data/uploads
     depends_on:
       db:

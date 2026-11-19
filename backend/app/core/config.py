@@ -16,16 +16,35 @@ class Settings(BaseSettings):
     # 认证
     secret_key: str = "dev-only-change-me"
     access_token_expire_minutes: int = 720
+    jwt_algorithm: str = "HS256"
 
     # 存储（与 compose 里的挂载点一致）
     upload_dir: str = "/data/uploads"
     snapshot_dir: str = "/data/uploads/snapshots"
+    frames_dir: str = "/data/uploads/frames"
     max_upload_mb: int = 2048
 
     # 推理默认参数（写进任务记录，便于复现）
     default_confidence: float = 0.25
     default_iou: float = 0.45
     default_imgsz: int = 640
+
+    # ---- 检测管线 ----
+    # MVP 阶段每个任务最多处理多少帧，防止一段长视频把单次请求拖死
+    max_process_frames: int = 30
+    # 推理后端：stub（假框，模型没训好时用）/ ultralytics（接真实权重）
+    detector_backend: str = "stub"
+    rgb_weights: str = ""
+    ir_weights: str = ""
+
+    # ---- 自适应模态选择阈值（需求 FR-06 / README §7.3）----
+    # 注意：这三个值是**待标定**的初始经验值，必须用基线实验重定
+    #   亮度均值低于此值 → 判为低照度，倾向热红外
+    selector_dark_threshold: float = 40.0
+    #   对比度（灰度标准差）低于此值 → 判为低质量
+    selector_contrast_threshold: float = 25.0
+    #   清晰度（拉普拉斯方差）低于此值 → 判为模糊
+    selector_sharpness_threshold: float = 100.0
 
     # ---- 告警归并（视频场景必须，见 docs/api.md §8.1）----
     # 同一 (media, region) 上，间隔小于该秒数且位置相近的判定并入原告警，

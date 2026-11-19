@@ -142,6 +142,8 @@
 | GET | `/api/media` | 列表（仅本人；admin 看全部） |
 | GET | `/api/media/{id}` | 详情（含解析结果） |
 | DELETE | `/api/media/{id}` | 删除（级联删任务/区域/告警） |
+| GET | `/api/media/{id}/image` | 原始画面（画框用；**仅图片类型**，视频返回 422） |
+| GET | `/api/media/{id}/frames/{frame_index}` | 处理过的某一帧（视频取图用这个） |
 
 **上传字段**
 

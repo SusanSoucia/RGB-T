@@ -317,19 +317,17 @@ uav-alert-system/
 │   ├── alembic/versions/     # 迁移脚本（已生成首个 init schema）
 │   ├── app/
 │   │   ├── main.py
-│   │   ├── core/             # 配置（config.py）
+│   │   ├── core/             # 配置、安全(JWT)、鉴权依赖、错误类型
 │   │   ├── db/               # Base / 会话
 │   │   ├── models/           # ORM 模型（7 张表，见 docs/database.md）
-│   │   ├── scripts/          # seed_admin / smoke_test
-│   │   ├── api/              # auth / media / detect / region / alert / export
-│   │   ├── schemas/          # Pydantic
-│   │   └── services/         # 检测编排、区域判定、告警归并
+│   │   ├── api/              # auth / media / regions / tasks / alerts（已实现）
+│   │   ├── schemas/          # Pydantic 请求/响应
+│   │   ├── services/         # ★ 业务核心：selector / detector / intrusion / frames / pipeline
+│   │   └── scripts/          # seed_admin / smoke_test / e2e_test
 │   └── tests/
-├── frontend/                 # Vue 3
-│   └── src/
-│       ├── views/            # Login / Detect / Alerts / History / Admin
-│       ├── components/       # RegionCanvas / DetBox / AlertModal
-│       └── api/
+├── frontend/                 # 前端
+│   └── mvp/                  # ★ 单文件 MVP 控制台（后端托管在 /ui，无需构建）
+│       └── index.html
 ├── ml/                       # 算法（独立于 Web，可单独跑）
 │   ├── requirements.txt
 │   ├── datasets/
@@ -342,6 +340,7 @@ uav-alert-system/
 │   └── infer.py                 # ⑤ 对外统一推理接口（backend 调用这里）
 ├── data/                     # 数据集（不入库，.gitignore）
 ├── docs/                     # 需求/设计/测试报告、实验记录
+│   ├── architecture.md       # ★ 后端分层与接手说明（组员先看这个）
 │   ├── api.md                # 接口与业务约定（前后端并行开发的契约）
 │   ├── database.md           # 表结构与迁移
 │   ├── docker-dev.md         # 环境搭建
@@ -351,6 +350,40 @@ uav-alert-system/
 ```
 
 **关键约定**：`ml/` 与 `backend/` 之间只通过一个稳定接口通信（输入：帧/视频 + 模式；输出：检测框 + 置信度 + 实际模式 + 原因 + 耗时）。接口先定，后面各自并行开发，互不阻塞。
+
+---
+
+## 8.1 当前可运行状态（MVP）
+
+**已经能端到端跑通**（模型用桩替代，检测逻辑真实）：
+
+```powershell
+docker compose up -d
+# 打开 http://localhost:8000/ui/
+# 用 admin / Admin@12345 登录 → 上传图片或视频 → 画区域 → 开始检测 → 看结果 → 确认告警
+```
+
+接口文档：<http://localhost:8000/docs>
+
+| 能力 | 状态 |
+|---|---|
+| 登录 / JWT / 越权拦截 | ✅ |
+| 上传图片或视频（可成对上传红外） | ✅ |
+| **自适应选模态**（亮度/对比度/清晰度 → rgb/ir/fusion） | ✅ 逻辑真实，阈值待标定 |
+| 手动模式校验（输入不匹配拒绝） | ✅ |
+| 分帧（stride 抽帧、原始帧号语义） | ✅ |
+| 区域绘制（归一化坐标）| ✅ |
+| 侵入判定（框中心 ∈ 区域） | ✅ |
+| 告警生成 / 归并 / 确认 | ✅ |
+| 帧级结果（含无目标帧） | ✅ |
+| 检测模型 | ⚠️ **桩**，等训练完成后切 `DETECTOR_BACKEND=ultralytics` |
+| Excel 导出 / 用户管理 / 异步任务 | ❌ 未做，见 `docs/architecture.md` §6 |
+
+自测命令：
+
+```powershell
+docker compose exec api python -m app.scripts.e2e_test
+```
 
 ---
 
