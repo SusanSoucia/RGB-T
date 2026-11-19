@@ -280,7 +280,7 @@ async function loadPreview() {
   // 图片直接取原始画面；视频要等检测跑完才有帧图
   if (!S.media) return;
   if (S.media.media_type === 'image') {
-    await loadImage(`/api/media/${S.media.id}/image`);
+    await loadImage(`/media/${S.media.id}/image`);
   } else if (S.frames.length) {
     await showFrame(S.frames[0].frame_index);
   } else {
@@ -297,19 +297,50 @@ function clearStage(msg) {
   $('stageHint').textContent = msg || '';
 }
 
-function loadImage(src) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      S.img = img;
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      render();
-      resolve();
-    };
-    img.onerror = () => { clearStage('图片加载失败'); resolve(); };
-    img.src = src + (src.includes('?') ? '&' : '?') + 't=' + Date.now();
-  });
+// 取图必须走这段，不能直接把 URL 塞给 <img>：
+// 图片接口要求 Authorization 头，而 <img>/Image 的请求带不了头（会 401）。
+// 所以先用 fetch 拿到 blob，再转成 objectURL 交给 canvas 绘制。
+let _objUrl = null;
+
+async function loadImage(apiPath) {
+  try {
+    const res = await fetch('/api' + apiPath, {
+      headers: S.token ? { Authorization: 'Bearer ' + S.token } : {},
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const j = await res.json();
+        detail = j.message || (typeof j.detail === 'string' ? j.detail : '') || '';
+      } catch { /* 非 JSON 响应 */ }
+      if (res.status === 401) detail = detail || '登录已失效，请重新登录';
+      clearStage(`图片加载失败（HTTP ${res.status}）${detail ? '：' + detail : ''}`);
+      return false;
+    }
+
+    const blob = await res.blob();
+    if (_objUrl) { URL.revokeObjectURL(_objUrl); _objUrl = null; }
+    _objUrl = URL.createObjectURL(blob);
+
+    await new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        S.img = img;
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        render();
+        resolve();
+      };
+      img.onerror = () => { clearStage('图片解码失败（文件可能损坏或格式不支持）'); resolve(); };
+      img.src = _objUrl;
+    });
+    return true;
+  } catch (e) {
+    clearStage('图片加载异常：' + e.message);
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------- 绘制
@@ -477,7 +508,7 @@ async function showFrame(frameIndex) {
   [...$('framesBody').children].forEach(tr => {
     tr.classList.toggle('sel', tr.firstChild && tr.firstChild.textContent === String(frameIndex));
   });
-  await loadImage(`/api/media/${S.media.id}/frames/${frameIndex}`);
+  await loadImage(`/media/${S.media.id}/frames/${frameIndex}`);
   $('stageHint').textContent =
     `当前帧 ${frameIndex} · 检出 ${S.boxes.length} 个目标 · 绿色=区域外，红色=区域内`;
 }
