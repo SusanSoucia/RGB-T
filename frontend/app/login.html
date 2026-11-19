@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>登录 · 反无人机检测与预警系统</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 界面 1：常规登录页面 -->
+  <div class="auth-wrap">
+    <form class="auth-card" id="loginForm" autocomplete="on">
+      <div class="auth-brand">
+        <span class="logo">◤◢</span>
+        <span>反无人机检测与预警系统</span>
+      </div>
+      <h1>登录</h1>
+      <p class="sub">请输入账号和密码</p>
+
+      <label class="fld" for="username">账号</label>
+      <input type="text" id="username" autocomplete="username" placeholder="请输入用户名" />
+      <label class="fld" for="password">密码</label>
+      <input type="password" id="password" autocomplete="current-password" placeholder="请输入密码" />
+
+      <div id="loginErr"></div>
+
+      <div style="margin-top:18px">
+        <button class="btn primary" type="submit" id="btnLogin" style="width:100%">登 录</button>
+      </div>
+
+      <div class="auth-foot">
+        <span>还没有账号？</span>
+        <!-- 注册跳转小按钮 -->
+        <a class="btn sm" href="register.html" id="toRegister">注册</a>
+      </div>
+    </form>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="common.js"></script>
+  <script src="pages/login.js"></script>
+</body>
+</html>

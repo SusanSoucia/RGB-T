@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>检测任务 · 反无人机检测与预警系统</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 业务界面 1：检测任务列表 -->
+  <div id="topbar"></div>
+  <main class="view">
+    <div class="toolbar">
+      <h1 class="page-title">检测任务</h1>
+      <span class="spacer"></span>
+      <button class="btn sm" id="refreshTasks">刷新</button>
+    </div>
+    <div class="card" style="padding:0">
+      <div id="tasksBox"><div class="empty">加载中…</div></div>
+    </div>
+    <p class="page-tip">双击任意一行查看该任务的检测详情。</p>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="common.js"></script>
+  <script src="pages/tasks.js"></script>
+</body>
+</html>

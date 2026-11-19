@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>注册 · 反无人机检测与预警系统</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 界面 2：常规注册界面 -->
+  <div class="auth-wrap">
+    <form class="auth-card" id="regForm">
+      <div class="auth-brand">
+        <span class="logo">◤◢</span>
+        <span>反无人机检测与预警系统</span>
+      </div>
+      <h1>注册</h1>
+      <p class="sub">创建普通用户账号</p>
+
+      <label class="fld" for="rUser">账号</label>
+      <input type="text" id="rUser" autocomplete="username" placeholder="3~64 个字符" />
+      <label class="fld" for="rPwd">密码</label>
+      <input type="password" id="rPwd" autocomplete="new-password" placeholder="至少 6 位" />
+      <label class="fld" for="rName">显示名称（可选）</label>
+      <input type="text" id="rName" placeholder="留空则使用账号名" />
+
+      <div id="regMsg"></div>
+
+      <div style="margin-top:18px">
+        <button class="btn primary" type="submit" id="btnReg" style="width:100%">注 册</button>
+      </div>
+
+      <div class="auth-foot">
+        <span>已有账号？</span>
+        <a class="btn sm" href="login.html">返回登录</a>
+      </div>
+    </form>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="common.js"></script>
+  <script src="pages/register.js"></script>
+</body>
+</html>
