@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     rgb_weights: str = ""
     ir_weights: str = ""
 
+    # ---- 标注视频导出 ----
+    render_dir: str = "/data/uploads/renders"
+    # 导出视频最多渲染多少帧（防止长视频把 CPU 占满）
+    render_max_frames: int = 900
+
     # ---- 自适应模态选择阈值（需求 FR-06 / README §7.3）----
     # 注意：这三个值是**待标定**的初始经验值，必须用基线实验重定
     #   亮度均值低于此值 → 判为低照度，倾向热红外

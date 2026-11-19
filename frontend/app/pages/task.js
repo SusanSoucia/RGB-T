@@ -16,11 +16,13 @@
     return;
   }
 
-  let task, frames, boxesByFrame;
+  let task, frames, boxesByFrame, regionList;
   try {
     task = await api(`/detect-tasks/${taskId}`);
     frames = await api(`/detect-tasks/${taskId}/frames`);
     const allDets = await api(`/detect-tasks/${taskId}/detections`);
+    // 警戒区域：播放时要叠在画面上，所以和检测结果一起加载
+    regionList = await api(`/regions?media_id=${task.media_id}`);
     boxesByFrame = new Map();
     for (const d of allDets) {
       if (!boxesByFrame.has(d.frame_index)) boxesByFrame.set(d.frame_index, []);
@@ -63,6 +65,14 @@
 
     <div class="card">
       <h2>画面与进度</h2>
+      <div class="player-tools">
+        <label class="chk">
+          <input type="checkbox" id="chkRegions" ${regionList.length ? 'checked' : 'disabled'} />
+          显示警戒区域${regionList.length ? `（${regionList.length} 个）` : '（未设置）'}
+        </label>
+        <span class="spacer"></span>
+        ${isVideo ? '<button class="btn sm" id="btnDownload">下载标注视频</button>' : ''}
+      </div>
       <div class="player">
         <div class="media-box">
           <div class="fit" id="fitBox">
@@ -128,6 +138,52 @@
   const overlay = $('#overlay');
   const badge = $('#frameBadge');
 
+  // 是否叠加显示警戒区域（有区域时默认开）
+  let showRegions = regionList.length > 0;
+  // 由「图片 / 视频」两个分支各自赋值，供开关和下载后重绘使用
+  let redraw = () => {};
+
+  const chkRegions = $('#chkRegions');
+  if (chkRegions) {
+    chkRegions.onchange = () => { showRegions = chkRegions.checked; redraw(); };
+  }
+
+  /* 下载标注视频：区域轮廓 + 检测框烧进画面，后端渲染成 WebM。
+     注意下载要带 token，不能用 <a href> 直连，所以走 fetch → blob → 临时链。 */
+  const btnDownload = $('#btnDownload');
+  if (btnDownload) {
+    btnDownload.onclick = async () => {
+      const old = btnDownload.textContent;
+      btnDownload.disabled = true;
+      btnDownload.textContent = '渲染中…';
+      try {
+        const res = await fetch(`${API_BASE}/api/detect-tasks/${task.id}/render`, {
+          headers: AUTH.token ? { Authorization: `Bearer ${AUTH.token}` } : {},
+        });
+        if (!res.ok) {
+          let detail = '';
+          try { detail = (await res.json()).message || ''; } catch { /* 非 JSON */ }
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `task${task.id}_annotated.webm`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        toast('标注视频已开始下载（WebM 格式）');
+      } catch (err) {
+        toast('导出失败：' + err.message, true);
+      } finally {
+        btnDownload.disabled = false;
+        btnDownload.textContent = old;
+      }
+    };
+  }
+
   /* ---------------------------------------------------------- 叠加绘制 */
 
   /**
@@ -158,6 +214,38 @@
     ctx.lineWidth = 2;
     ctx.font = '12px ui-monospace, Consolas, monospace';
 
+    // ---- 警戒区域：半透明填充 + 橙色轮廓，画在检测框下层 ----
+    if (showRegions) {
+      for (const r of regionList) {
+        const rp = r.points;
+        if (!rp || rp.length < 3) continue;
+
+        ctx.beginPath();
+        ctx.moveTo(ox + rp[0][0] * dw, oy + rp[0][1] * dh);
+        for (let k = 1; k < rp.length; k++) ctx.lineTo(ox + rp[k][0] * dw, oy + rp[k][1] * dh);
+        ctx.closePath();
+
+        ctx.fillStyle = 'rgba(245,158,11,.14)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#f59e0b';
+        ctx.stroke();
+
+        // 区域名（canvas 能用系统字体，中文正常显示）
+        const nm = r.name || `区域${r.id}`;
+        ctx.font = '12px ui-monospace, Consolas, monospace';
+        const nw = ctx.measureText(nm).width;
+        const nx = ox + rp[0][0] * dw, ny = oy + rp[0][1] * dh;
+        ctx.fillStyle = 'rgba(180,83,9,.92)';
+        ctx.fillRect(nx, ny, nw + 8, 16);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(nm, nx + 4, ny + 12);
+
+        ctx.lineWidth = 2;
+        ctx.font = '12px ui-monospace, Consolas, monospace';
+      }
+    }
+
     boxes.forEach((b, i) => {
       const inside = i < count;
       const x = ox + b.x1 * dw, y = oy + b.y1 * dh;
@@ -177,18 +265,17 @@
   /* ---------------------------------------------------------- 静态图片 */
   if (!isVideo) {
     const still = $('#still');
+    const firstIdx = frames.length ? frames[0].frame_index : 0;
+    redraw = () => {
+      if (still.naturalWidth) renderFrameBoxes(firstIdx, still.naturalWidth, still.naturalHeight);
+    };
     try {
-      const idx = frames.length ? frames[0].frame_index : 0;
-      still.src = await blobUrl(`/media/${task.media_id}/frames/${idx}`);
-      still.onload = () => renderFrameBoxes(idx, still.naturalWidth, still.naturalHeight);
+      still.src = await blobUrl(`/media/${task.media_id}/frames/${firstIdx}`);
+      still.onload = redraw;
     } catch (err) {
       fitBox.innerHTML = `<div class="empty" style="color:#aab">${esc(err.message)}</div>`;
     }
-    window.addEventListener('resize', () => {
-      if (still.naturalWidth) {
-        renderFrameBoxes(frames.length ? frames[0].frame_index : 0, still.naturalWidth, still.naturalHeight);
-      }
-    });
+    window.addEventListener('resize', () => redraw());
     return;
   }
 
@@ -333,7 +420,8 @@
     };
   });
 
-  window.addEventListener('resize', () => {
+  redraw = () => {
     if (vid.videoWidth) renderFrameBoxes(currentFrame, vid.videoWidth, vid.videoHeight);
-  });
+  };
+  window.addEventListener('resize', () => redraw());
 })();

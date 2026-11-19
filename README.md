@@ -322,15 +322,21 @@ uav-alert-system/
 │   │   ├── models/           # ORM 模型（7 张表，见 docs/database.md）
 │   │   ├── api/              # auth / media / regions / tasks / alerts（已实现）
 │   │   ├── schemas/          # Pydantic 请求/响应
-│   │   ├── services/         # ★ 业务核心：selector / detector / intrusion / frames / pipeline
+│   │   ├── services/         # ★ 业务核心：selector / detector / intrusion / frames / pipeline / render
 │   │   └── scripts/          # seed_admin / smoke_test / e2e_test
 │   └── tests/
 ├── frontend/                 # 前端
-│   ├── app/                  # ★ 独立前端（登录/注册 + 三个业务界面，跑在 5173）
-│   │   ├── index.html
+│   ├── app/                  # ★ 独立前端（多页，跑在 5173）
+│   │   ├── index.html        # 入口跳转
+│   │   ├── login.html / register.html
+│   │   ├── upload.html       # 上传素材 + 划定警戒区域
+│   │   ├── tasks.html        # 检测任务列表
+│   │   ├── task.html         # 检测详情（播放/进度/区域轮廓/报警标记/导出）
+│   │   ├── alerts.html       # 报警画廊
+│   │   ├── common.js         # 请求/鉴权/blob/格式化/顶栏
 │   │   ├── style.css
-│   │   └── app.js
-│   └── mvp/                  # 早期 MVP 控制台（后端托管在 /ui，含上传与画框）
+│   │   └── pages/            # 每个页面各自的脚本
+│   └── mvp/                  # 早期 MVP 控制台（后端托管在 /ui）
 │       ├── index.html
 │       └── test/draw.test.js # 画框逻辑的无浏览器回归测试
 ├── ml/                       # 算法（独立于 Web，可单独跑）

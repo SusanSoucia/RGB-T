@@ -183,6 +183,7 @@ function mountTopbar(active) {
       <nav class="nav">
         <a href="tasks.html" class="${active === 'tasks' ? 'active' : ''}">检测任务</a>
         <a href="alerts.html" class="${active === 'alerts' ? 'active' : ''}">报警情况</a>
+        <a href="upload.html" class="${active === 'upload' ? 'active' : ''}">上传素材</a>
       </nav>
       <div class="topbar-right">
         <span class="who">${user

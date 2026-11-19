@@ -19,6 +19,7 @@ docker compose --profile web up -d         # 前端 5173
 ```
 http://localhost:5173/login.html         登录
 http://localhost:5173/register.html      注册
+http://localhost:5173/upload.html        上传素材 + 划定警戒区域
 http://localhost:5173/tasks.html         检测任务列表
 http://localhost:5173/task.html?id=17    检测详情
 http://localhost:5173/alerts.html        报警情况
@@ -42,8 +43,9 @@ http://localhost:5173/alerts.html        报警情况
 |---|---|---|
 | 登录界面 1：常规登录 | `login.html` | `POST /api/auth/login`、`GET /api/auth/me` |
 | 登录界面 2：常规注册 | `register.html` | `POST /api/auth/register`（**受开关控制**） |
+| （文档外补充）上传 + 划区域 | `upload.html` | `POST /api/media`、`GET /api/media/{id}/poster`、`POST /api/regions`、`POST /api/detect-tasks` |
 | 业务界面 1：检测任务列表 | `tasks.html` | `GET /api/detect-tasks` |
-| 业务界面 2：检测详情 | `task.html?id=N` | `GET /api/detect-tasks/{id}`、`/frames`、`/detections`、`GET /api/media/{id}/video` |
+| 业务界面 2：检测详情 | `task.html?id=N` | `GET /api/detect-tasks/{id}`、`/frames`、`/detections`、`GET /api/media/{id}/video`、`GET /api/regions`、`GET /api/detect-tasks/{id}/render` |
 | 业务界面 3：报警情况 | `alerts.html` | `GET /api/alerts`、`POST /api/alerts/{id}/confirm` |
 
 ### 界面 1 的字段（文档要求逐条对上）
@@ -68,6 +70,44 @@ ID | 媒体文件 | 分辨率 | 帧率 | 总帧数 | 总时长 | 模式 | 状态
 
 缩略图卡片网格，每张卡显示：媒体名、帧号、时间、分数、出现次数、确认状态 + 确认按钮。
 点卡片跳到界面 2 的对应任务。
+
+---
+
+## 2.1 上传素材 + 划定区域（`upload.html`）
+
+一条龙三步，做完直接跳详情页：
+
+```
+选文件 → 上传 → 画面出现首帧预览 → 拖拽画矩形 → 保存区域 → 开始检测 → 跳 task.html
+```
+
+- **视频也能画框**：后端 `GET /api/media/{id}/poster` 会取视频首帧转 JPEG 返回，不落盘
+- **图像类型**直接返回原图
+- 画框逻辑与 MVP 控制台一致（`isDrawing` 驱动、单击丢弃、归一化到 `[0,1]`）
+- 红外文件可选；上传成对后 `ir` / `fusion` 模式才可用
+
+## 2.2 视频上叠加区域轮廓 + 导出标注视频
+
+**页面内叠加**：`task.html` 把该媒体的所有区域画成**橙色半透明 + 轮廓 + 名称**，
+叠在检测框下层。右上角有「显示警戒区域」开关。区域名用 canvas 渲染，
+中文正常显示。
+
+**导出标注视频**：右上角「下载标注视频」，后端 `GET /api/detect-tasks/{id}/render`
+把区域轮廓 + 检测框**烧进画面**，输出可下载的 `.webm`。
+
+| 行为 | 说明 |
+|---|---|
+| 区域轮廓 | **每一帧都画**，便于持续看出重点区域 |
+| 检测框 | 只在「已处理帧」上更新；抽帧步长 >1 时沿用最近一个已处理帧 |
+| 框的颜色 | 绿=区域外，红=区域内（带 `IN` 标记和置信度） |
+| 角落标注 | 帧号，方便和页面上的时间轴对照 |
+| 缓存 | 结果缓存在 `data/uploads/renders/`，加 `?refresh=true` 强制重渲染 |
+
+> **两处编码限制**（都是硬约束，改不了）：
+> 1. 输出只能是 **WebM(VP8)** —— 容器里没有 libx264，而 mp4v 浏览器放不了；
+> 2. 视频里的区域名**只能是英文**（`Region 1`）—— `cv2.putText` 用 Hershey 字体，
+>    只支持 ASCII，容器里也没有中文字体。中文名在**页面上正常显示**（canvas），
+>    只有导出的视频文件里用英文占位。
 
 ---
 

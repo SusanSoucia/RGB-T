@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>上传素材 · 反无人机检测与预警系统</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 上传 + 划定警戒区域 -->
+  <div id="topbar"></div>
+  <main class="view">
+    <div class="toolbar">
+      <h1 class="page-title">上传素材并划定警戒区域</h1>
+      <span class="spacer"></span>
+      <a class="btn sm" href="tasks.html">← 返回任务列表</a>
+    </div>
+
+    <div class="upload-grid">
+      <!-- 左栏：步骤 -->
+      <div>
+        <div class="card">
+          <h2>1. 选择文件</h2>
+          <label class="fld">可见光视频或图片</label>
+          <input type="file" id="fileRgb" accept="video/*,image/*" />
+          <label class="fld">红外文件（可选，成对才会有 T / 融合模式）</label>
+          <input type="file" id="fileIr" accept="video/*,image/*" />
+          <div class="row-btns">
+            <button class="btn primary" id="btnUpload">上传</button>
+          </div>
+          <div id="uploadMsg"></div>
+        </div>
+
+        <div class="card" id="cardRegion" style="display:none">
+          <h2>2. 划定警戒区域</h2>
+          <p class="muted-small" style="margin:0 0 8px">
+            在右侧画面上<b>按住左键拖出一个矩形</b>，松开后可保存。
+          </p>
+          <div class="row-btns">
+            <button class="btn primary" id="btnSaveRegion" disabled>保存区域</button>
+            <button class="btn" id="btnClearDrag" disabled>清除本次框选</button>
+          </div>
+          <div id="regionList" class="muted-small" style="margin-top:10px">尚未创建区域</div>
+        </div>
+
+        <div class="card" id="cardDetect" style="display:none">
+          <h2>3. 开始检测</h2>
+          <label class="fld">检测模式</label>
+          <select id="mode" class="sel" style="width:100%">
+            <option value="auto">auto —— 自适应选择（推荐）</option>
+            <option value="rgb">rgb —— 仅可见光</option>
+            <option value="ir">ir —— 仅热红外</option>
+            <option value="fusion">fusion —— 双模态结果级融合</option>
+          </select>
+          <div class="row-btns">
+            <button class="btn primary" id="btnDetect">开始检测</button>
+          </div>
+          <div id="detectMsg"></div>
+          <p class="muted-small" style="margin:10px 0 0">
+            没有区域也可以检测，但不会产生区域侵入告警。
+          </p>
+        </div>
+      </div>
+
+      <!-- 右栏：画面 -->
+      <div class="card" style="padding:12px">
+        <canvas id="stage" width="960" height="540"></canvas>
+        <div class="hint-line" id="stageHint">上传文件后，这里显示画面，可拖拽画框。</div>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="common.js"></script>
+  <script src="pages/upload.js"></script>
+</body>
+</html>

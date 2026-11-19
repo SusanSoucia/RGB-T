@@ -11,18 +11,22 @@ BackgroundTasks 或队列，接口形状不用变——前端本来就在轮询�
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import current_user, get_db, owned_or_admin
 from app.core.errors import ApiError, not_found
-from app.models import Detection, DetectTask, FrameResult, Media, MediaStatus, User
-from app.models.enums import TaskStatus
+from app.models import Detection, DetectTask, FrameResult, Media, MediaStatus, Region, User
+from app.models.enums import MediaType, TaskStatus
 from app.schemas import DetectionOut, FrameOut, Page, TaskCreate, TaskOut
 from app.services.frames import frame_image_path
 from app.services.pipeline import run_task
+from app.services.render import boxes_from_detections, render_video
 
 router = APIRouter(prefix="/detect-tasks", tags=["detect"])
 
@@ -141,3 +145,72 @@ def get_task_detections(
         stmt = stmt.where(Detection.frame_index == frame_index)
     rows = db.scalars(stmt.order_by(Detection.frame_index, Detection.id)).all()
     return [DetectionOut.model_validate(r) for r in rows]
+
+
+@router.get("/{task_id}/render", summary="导出标注视频（区域轮廓 + 检测框）")
+def render_task(
+    task_id: int,
+    refresh: bool = Query(False, description="true 则忽略缓存重新渲染"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """把警戒区域轮廓和检测框烧进画面，输出可下载的 WebM。
+
+    - **每一帧都画区域轮廓**，方便一眼看出重点区域；
+    - 检测框只在"已处理帧"上更新（抽帧步长 >1 时沿用最近一个已处理帧）；
+    - 输出固定 **WebM(VP8)**：容器里没有 H.264 编码器，而 mp4v 浏览器放不了。
+    - 结果缓存在 `settings.render_dir`，加 `?refresh=true` 可强制重渲染。
+    """
+    task = _get_task(db, task_id, user)
+    media = db.get(Media, task.media_id)
+    if media is None:
+        raise not_found("媒体")
+
+    if media.media_type != MediaType.video:
+        raise ApiError(
+            "MEDIA_UNSUPPORTED_FORMAT",
+            "该任务是静态图片，没有可导出的视频",
+            422,
+        )
+
+    src = Path(settings.upload_dir) / media.stored_path
+    if not src.exists():
+        raise not_found("源视频")
+
+    out_dir = Path(settings.render_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"task_{task.id}.webm"
+
+    if not out_path.exists() or refresh:
+        regions = [
+            {"name": r.name, "points": r.points}
+            for r in db.scalars(
+                select(Region).where(Region.media_id == media.id, Region.is_active.is_(True))
+            )
+        ]
+
+        dets = db.scalars(select(Detection).where(Detection.task_id == task.id)).all()
+        det_dicts = [
+            {
+                "frame_index": d.frame_index,
+                "x1": d.x1, "y1": d.y1, "x2": d.x2, "y2": d.y2,
+                "score": d.score,
+            }
+            for d in dets
+        ]
+        boxes_by_frame = boxes_from_detections(det_dicts, regions)
+
+        ok = render_video(
+            src_path=src,
+            out_path=out_path,
+            regions=regions,
+            boxes_by_frame=boxes_by_frame,
+        )
+        if not ok:
+            raise ApiError("INFERENCE_FAILED", "标注视频渲染失败", 500)
+
+    return FileResponse(
+        out_path,
+        media_type="video/webm",
+        filename=f"task{task.id}_annotated.webm",
+    )

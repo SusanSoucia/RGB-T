@@ -502,6 +502,26 @@ const url = URL.createObjectURL(await res.blob());
 > 更正规的方案是签发短时效签名 URL（token 不进 URL）。现阶段用 blob，
 > 代价是视频要整段进内存，长视频需要升级。
 
+### 12.5 上传后画框用的预览图
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/media/{id}/poster` | 可画框的静态预览图。图片返回原图；**视频取首帧转 JPEG**（不落盘） |
+
+前端上传视频后要立刻划定警戒区域，就需要这张图——否则得先跑一次检测才能拿到帧。
+
+### 12.6 导出标注视频
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/detect-tasks/{id}/render?refresh=false` | 渲染并下载**区域轮廓 + 检测框**烧进画面的视频 |
+
+- 返回 `video/webm`（VP8）。**不能输出 mp4**：容器无 libx264，mp4v 浏览器放不了。
+- 只对 `media_type=video` 的任务有效，静态图片返回 `422`。
+- 结果缓存在 `settings.render_dir`，`refresh=true` 强制重渲染。
+- 渲染是**同步**的：视频越长耗时越久，帧数上限由 `settings.render_max_frames`（默认 900）控制，超出按步长抽帧保证时长不变。
+- 视频里的区域名用英文占位（`Region N`）：`cv2.putText` 只支持 ASCII。
+
 ### 12.4 跨域
 
 前端跑在 `5173`、后端在 `8000`，属于跨域。后端已开 CORS，只放行

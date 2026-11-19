@@ -18,6 +18,8 @@ from app.schemas import MediaOut, Page
 from app.services.frames import frame_image_path
 from app.services.imaging import guess_is_video, probe_media
 
+import cv2
+
 router = APIRouter(prefix="/media", tags=["media"])
 
 _IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
@@ -177,6 +179,39 @@ def delete_media(
     db.delete(media)
     db.commit()
     return Response(status_code=204)
+
+
+@router.get("/{media_id}/poster", summary="首帧预览图（视频也适用，用于画框）")
+def get_media_poster(
+    media_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """返回可画框的静态预览图。
+
+    图片直接用原图；视频取第一帧转成 JPEG 返回（不落盘）。
+    前端上传视频后要立刻画警戒区域，就需要这张图。
+    """
+    media = _get_owned_media(db, media_id, user)
+    path = Path(settings.upload_dir) / media.stored_path
+    if not path.exists():
+        raise not_found("媒体文件")
+
+    if media.media_type == MediaType.image:
+        return FileResponse(path)
+
+    cap = cv2.VideoCapture(str(path))
+    try:
+        ok, frame = cap.read()
+    finally:
+        cap.release()
+    if not ok or frame is None:
+        raise ApiError("MEDIA_UNSUPPORTED_FORMAT", "无法从视频中解出首帧", 422)
+
+    ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+    if not ok:
+        raise ApiError("INFERENCE_FAILED", "首帧编码失败", 500)
+    return Response(content=buf.tobytes(), media_type="image/jpeg")
 
 
 @router.get("/{media_id}/video", summary="原始视频流（用于前端播放与跳看）")
