@@ -38,10 +38,15 @@ COLOR_BOX_HOT = (40, 40, 230)     # 红色：区域内目标
 COLOR_TEXT_BG = (32, 32, 32)
 
 # 中文字体查找顺序：
-#   1) 仓库里自带的字体（推荐：把任意开源中文字体丢进 backend/app/assets/fonts/）
+#   1) 仓库里自带的字体（把任意开源中文字体丢进 backend/app/assets/fonts/ 即可）
 #   2) 系统字体（如果镜像里装过 fonts-wqy-microhei / noto-cjk）
 # 都没有时，视频里的区域名退回 "Region N"（cv2 的 Hershey 字体只支持 ASCII）。
-_REPO_FONT_DIR = Path("/app/assets/fonts")
+#
+# 路径用「相对本文件」算，不要写死 /app/...：
+# backend 目录被挂到 /app，所以本文件是 /app/app/services/render.py，
+# 而 assets 在 /app/app/assets —— 写死 /app/assets 会找不到。
+_APP_DIR = Path(__file__).resolve().parent.parent          # .../app
+_REPO_FONT_DIR = _APP_DIR / "assets" / "fonts"
 _FONT_CANDIDATES = (
     str(_REPO_FONT_DIR / "wqy-microhei.ttc"),
     str(_REPO_FONT_DIR / "NotoSansCJK-Regular.ttc"),
