@@ -1,0 +1,25 @@
+# 算法依赖（GPU 镜像用）
+#
+# 注意：torch / torchvision 不在这里装 —— 由基础镜像
+# pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime 自带。
+# 千万不要在这里写 torch==...，否则 pip 会拉一个 CPU 版把 CUDA 版覆盖掉，
+# 然后你会得到 "torch.cuda.is_available() == False" 这种玄学问题。
+
+numpy==1.26.4
+
+# ⚠️ opencv 装两个是有意的，别删：
+#   ultralytics 的依赖声明写死了 opencv-python>=4.6.0
+#   albumentations 的依赖声明写死了 opencv-python-headless>=4.9.0.80
+# 两者都会往 site-packages 里写 cv2，版本不一致就会出现
+# "cv2 能用但某些函数莫名报错"这种灵异问题。
+# 对策：两个包锁成同一个版本号，谁最后装上都一样。
+opencv-python==4.10.0.84
+opencv-python-headless==4.10.0.84
+
+ultralytics==8.3.40
+albumentations==1.4.21
+pyyaml==6.0.2
+tqdm==4.66.5
+matplotlib==3.9.2
+pandas==2.2.3
+scipy==1.14.1

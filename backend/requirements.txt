@@ -1,0 +1,25 @@
+# 后端依赖（务必全部锁版本：三人环境一致才谈得上"可复现"）
+# 升级依赖时改这里，然后 docker compose build api 重建
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+httpx==0.28.1
+
+# 数据库
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+alembic==1.14.0
+
+# 认证：bcrypt 必须锁 4.0.1，4.1+ 与 passlib 1.7.4 不兼容（会抛 __about__ AttributeError）
+passlib==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+
+# 图像 / 视频 / 导出
+numpy==1.26.4
+pillow==11.0.0
+opencv-python-headless==4.10.0.84
+openpyxl==3.1.5

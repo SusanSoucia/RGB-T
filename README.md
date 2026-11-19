@@ -204,10 +204,17 @@ flowchart TD
 
 ## 6. 数据与评估口径
 
-- **数据集**：现有约 **3000+ 对 UAV_CB RGB-T** 图像（可见光 + 红外成对）。
-- **已知坑**：两种模态存在**轻微拍摄时间差**，**不能直接假定目标像素位置一致**。这意味着——
-  - 输入级融合（RGB+IR 拼 4 通道）和特征级融合都建立在对齐假设上，**风险较高**；
-  - 结果级融合（两路各自检测再融合框）对这个问题的鲁棒性更好。
+- **数据集**：现有约 **3000+ 对 UAV_CB RGB-T** 图像（可见光 + 热红外成对）。
+- **已知坑（措辞要准确）**：两种模态**未做像素级配准**，受视差与传感器机械偏移影响，
+  RGB 与 T 里同一个目标的像素位置**并不严格重合**，**不能直接假定位置一致**。
+  > 需求说明书写的是"两种模态存在轻微拍摄时间差"，但原始数据集论文的说法是：
+  > 两路视频流**已用硬件时间戳做帧级同步**，问题出在**空间未配准**，不是时间不同步。
+  > 结论一样，但**报告和答辩要按"空间未配准"来讲**，说成"时间不同步"会被问穿。
+- 这意味着——
+  - **输入级融合**（RGB+IR 拼 4 通道）风险最高，直接假设逐像素对齐；
+  - **结果级融合**（两路各自检测再融合框）最稳，对不配准天然免疫，适合当保底方案；
+  - **特征级融合**居中，但必须自带跨模态对齐机制（如 LFBNet 的频域对齐 + 可变形卷积），
+    裸 concat 效果会打折；
   - 精确配准与同步校正**不列为首版必做功能**（需求 §2.3），但要在报告里说明处理方式。
 - **划分要求**：训练/验证/测试固定；核查相邻帧与相似场景，**避免高度相似图片跨集合**导致指标虚高。
 - **不可复现 = 不算成果**：模型版本、超参、数据划分、阈值都要记录，实验记录要能被别人重跑。
@@ -224,20 +231,56 @@ flowchart TD
 | 训练/推理 | Python 3.10 + PyTorch 2.x + **Ultralytics YOLO** | 生态成熟、单阶段检测上手快、6GB 显存可跑 |
 | 加速 | AMP 混合精度、imgsz=640、小 batch | RTX 4050 **6GB** 显存偏紧，双流模型尤其要省 |
 | 后端 | **FastAPI** + Uvicorn + SQLAlchemy | 异步、自带 OpenAPI 文档，前后端对接省事 |
-| 数据库 | 开发用 SQLite，部署用 PostgreSQL | 降低前期环境成本 |
+| 数据库 | **PostgreSQL 16**（开发与部署同一个，不走 SQLite） | 见下方说明 |
 | 前端 | **Vue 3 + Vite + Element Plus + Pinia + Axios** | 组件全、上手快；画框用原生 Canvas 或 Fabric.js |
-| 部署 | Docker Compose + Nginx（可选） | 验收时"一条命令起来"很加分 |
+| 部署 | Docker Compose（脚手架已就位，见 [docs/docker-dev.md](docs/docker-dev.md)） | 验收时"一条命令起来"很加分 |
 | 实验 | 自写评估脚本 + CSV/JSON + matplotlib | 图能直接塞进报告 |
+
+> **关于数据库：为什么开发也不用 SQLite？**
+>
+> 原本的设想是「开发 SQLite、部署 PostgreSQL」，但容器化之后这个理由消失了——
+> `docker compose up -d` 就有一条一模一样的 PostgreSQL，零安装成本。
+> 而同时用两套库的代价是真实的：
+>
+> - **方言差异**：`JSONB`、`ON CONFLICT`、数组类型、`ILIKE`、时间戳与时区处理和 SQLite 都不一样；
+>   本地跑通的 SQL 上服务器报错，是最难查的一类 bug。
+> - **检测结果要存框坐标**，`JSONB` 在 PG 里能直接查、能建索引，SQLite 只能当字符串存。
+> - **并发**：SQLite 是库级写锁，视频分帧 + 多用户同时提交检测时容易撞 `database is locked`。
+> - **迁移只写一遍**：`alembic` 的迁移脚本在开发和生产上验证的是同一份。
+>
+> 结论：**开发、测试、部署统一用 PostgreSQL 16**，省下的是排查方言 bug 的时间。
+> 表结构与日常迁移命令见 [docs/database.md](docs/database.md)。
 
 > 技术栈不是重点，**能跑通、能解释**才是。如果组内有更熟的栈（React、Flask 等），换掉没问题，但要在 README 里改掉并说明。
 
 ### 7.2 双模态融合的三条路线
 
-| 路线 | 做法 | 难度 | 风险 | 建议 |
-|---|---|---|---|---|
-| 结果级（Late Fusion） | 两路独立检测 → 框融合（WBF / NMS / 加权） | 低 | 提升有限 | **先做，作为保底方案** |
-| 特征级（Feature Fusion） | 双 backbone，中层特征 concat/add 后统一检测头 | 中高 | 依赖对齐，显存吃紧 | **主攻方向，本项目创新点** |
-| 输入级（Early Fusion） | RGB+IR 拼 4 通道送单 backbone | 低 | 强依赖像素级对齐，本项目数据有拍摄时间差 | 谨慎，最多做对照 |
+| 路线 | 做法 | **要重新训练吗** | 难度 | 风险 | 建议 |
+|---|---|---|---|---|---|
+| 结果级（Late Fusion） | 两路独立检测 → 框融合（WBF / NMS / 加权） | ❌ **不用**，直接复用已训练的两个单模态模型 | 低 | 提升有限 | **先做，作为保底方案** |
+| 特征级（Feature Fusion） | 双 backbone，中层特征 concat/add 后统一检测头 | ✅ **要**（可从单模态权重热启动） | 中高 | 依赖对齐，显存吃紧 | **主攻方向，本项目创新点** |
+| 输入级（Early Fusion） | RGB+IR 拼 4 通道送单 backbone | ✅ **要**，且第一层 3→4 通道要改 | 低 | 强依赖像素级对齐，本项目数据**未配准** | 谨慎，最多做对照 |
+
+> **这条区分决定了 11–12 月的排期**：结果级融合零训练成本，做完单模态就能拼出
+> 完整可演示的系统；特征级融合必须重训，属于"必须提前排期、否则 12 月交不出东西"的实验。
+
+> **📌 重要参考**：本数据集来自论文 **UAV-CB: A Complex-Background RGB–T Dataset and
+> Local Frequency Bridge Network for UAV Detection**（CVPR 2026，
+> [arXiv:2603.17492](https://arxiv.org/abs/2603.17492)）。它做的是**同一数据集上的同一个任务**，
+> 提出的 **LFBNet 属于典型的「特征级（中期）融合」**：双流分支各自提特征 → 频率域跨模态对齐
+> （LFCA）→ 频率引导的可变形空间对齐（FGSA）→ 对称交叉条件融合 → 单一 FPN(YOLOv5s) 检测头。
+>
+> **但复现成本要认清**：论文用 **ResNet-50 双流 + A100 40GB + batch 16 + 200 epochs**，
+> 输入 640×512，参数量 30.2M / 65.2 GFLOPs（YOLOv5s 只有 7.2M / 13.5G）。
+> 在 6GB 的 4050 上**无法照搬**。现实做法是：把它作为报告里的 **SOTA 对照**，
+> 自己实现一个轻量版特征融合（轻量 backbone + 单个对齐模块），不要试图还原整个网络。
+
+> **⚠️ 一个必须知道的反直觉结论**：论文 Table 2 里，最简单的特征拼接融合
+> （`YOLOv5s+Add`）AP50 只有 **72.8**，**低于热红外单模态的 78.2**。
+> 也就是说**朴素融合会让效果变差**。融合不是稳赚，必须有对齐机制才划算——
+> 这条直接决定了你们"双模态协同"章节怎么写，别默认"融合一定更好"。
+>
+> 完整基线数据见 [docs/training.md](docs/training.md) §9。
 
 
 ### 7.3 自适应选择策略（初版规则草案）
@@ -262,14 +305,23 @@ else:                     mode = rgb,    reason="光照与质量正常，用可�
 ```
 uav-alert-system/
 ├── README.md
-├── requirements.txt / environment.yml
-├── docker-compose.yml
+├── docker-compose.yml        # 一键起 db + api（见 docs/docker-dev.md）
+├── .env.example              # 复制成 .env 用；.env 不进仓库
+├── docker/
+│   ├── backend.Dockerfile    # 后端 API（CPU）
+│   ├── ml.Dockerfile         # 训练/推理（CUDA）
+│   └── web.Dockerfile        # 前端（可选）
 ├── backend/                  # FastAPI
+│   ├── requirements.txt
+│   ├── alembic.ini           # 数据库迁移配置
+│   ├── alembic/versions/     # 迁移脚本（已生成首个 init schema）
 │   ├── app/
 │   │   ├── main.py
+│   │   ├── core/             # 配置（config.py）
+│   │   ├── db/               # Base / 会话
+│   │   ├── models/           # ORM 模型（7 张表，见 docs/database.md）
+│   │   ├── scripts/          # seed_admin / smoke_test
 │   │   ├── api/              # auth / media / detect / region / alert / export
-│   │   ├── core/             # 配置、鉴权、异常
-│   │   ├── models/           # SQLAlchemy ORM
 │   │   ├── schemas/          # Pydantic
 │   │   └── services/         # 检测编排、区域判定、告警归并
 │   └── tests/
@@ -279,14 +331,22 @@ uav-alert-system/
 │       ├── components/       # RegionCanvas / DetBox / AlertModal
 │       └── api/
 ├── ml/                       # 算法（独立于 Web，可单独跑）
+│   ├── requirements.txt
 │   ├── datasets/
-│   ├── models/               # rgb / ir / fusion
-│   ├── selector/             # 自适应选择策略
-│   ├── train.py
-│   ├── infer.py              # 对外统一推理接口（backend 调用这里）
-│   └── evaluate.py           # 对比实验
+│   │   ├── inspect_dataset.py   # ① 先探数据格式
+│   │   └── prepare_yolo.py      # ② 转 YOLO + 防泄漏划分
+│   ├── models/                  # rgb / ir / fusion（待建）
+│   ├── selector/                # 自适应策略（待建）
+│   ├── train.py                 # ③ 训练
+│   ├── evaluate.py              # ④ 评估（P/R/mAP + 耗时）
+│   └── infer.py                 # ⑤ 对外统一推理接口（backend 调用这里）
 ├── data/                     # 数据集（不入库，.gitignore）
 ├── docs/                     # 需求/设计/测试报告、实验记录
+│   ├── api.md                # 接口与业务约定（前后端并行开发的契约）
+│   ├── database.md           # 表结构与迁移
+│   ├── docker-dev.md         # 环境搭建
+│   ├── training.md           # 单模态检测实现流程
+│   └── handover-*.md         # 每日交接记录（最新一份先看）
 └── scripts/                  # 分帧、数据预处理等
 ```
 

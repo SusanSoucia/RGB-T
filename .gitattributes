@@ -1,0 +1,10 @@
+# 统一换行符为 LF —— 否则 Windows 下写出的 .sh / Dockerfile 在 Linux 容器里会报
+#   exec format error / bad interpreter: No such file or directory
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pt  binary
+*.pth binary
+*.onnx binary

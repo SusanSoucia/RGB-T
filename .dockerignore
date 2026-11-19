@@ -1,0 +1,25 @@
+# 构建上下文排除项 —— 少传几 GB 给 Docker，构建才快
+**/__pycache__
+**/*.py[cod]
+.git
+.gitignore
+.venv
+venv
+node_modules
+**/node_modules
+
+# 数据与训练产物：绝不打进镜像
+data/
+runs/
+uploads/
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# 文档与无关文件
+docs/
+*.md
+!ml/README.md
+.vscode/
+.idea/

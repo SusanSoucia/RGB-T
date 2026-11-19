@@ -1,0 +1,26 @@
+# 环境与密钥
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# 数据与训练产物（体积大，绝不进仓库）
+data/
+runs/
+uploads/
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# 前端
+node_modules/
+dist/
+.vite/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

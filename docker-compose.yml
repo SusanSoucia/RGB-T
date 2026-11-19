@@ -1,0 +1,128 @@
+# ============================================================
+# 反无人机检测与预警系统 —— 本地开发编排
+# 详细用法见 docs/docker-dev.md
+#
+#   docker compose up -d              # 只起 db + api（日常开发）
+#   docker compose --profile ml run --rm ml bash    # 进 GPU 训练容器
+#   docker compose --profile web up -d              # 起前端（需先有 frontend/）
+# ============================================================
+name: uav-alert
+
+services:
+  # ---------------- PostgreSQL ----------------
+  db:
+    image: postgres:16-alpine
+    container_name: uav-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-uav}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-uav_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-uav}
+      TZ: ${TZ:-Asia/Shanghai}
+      PGTZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # 用 pg_isready 而不是写死 sleep，api 才能可靠地等库起好
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-uav} -d ${POSTGRES_DB:-uav}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # ---------------- 后端 API（FastAPI）----------------
+  api:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      target: dev
+    image: uav-alert-api:dev
+    container_name: uav-api
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # 注意：容器内用服务名 db，不是 localhost
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-uav}:${POSTGRES_PASSWORD:-uav_dev_pw}@db:5432/${POSTGRES_DB:-uav}
+      SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
+      PYTHONPATH: /app
+      # Windows 上 bind mount 的文件变更事件常常不触发，
+      # 打开轮询才能让 uvicorn --reload 真正生效（代价是一点 CPU）
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app          # 代码热更新
+      # 挂到 /app/ml 而不是 /opt/ml：这样 `python -m ml.datasets.xxx` 能直接跑，
+      # PYTHONPATH=/app 就够，不用再多一个 sys.path 条目
+      - ./ml:/app/ml:ro
+      - ./data/uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # 镜像里装了 curl；用 /health 探活，docker compose ps 才能看到 api 的 healthy
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    restart: unless-stopped
+
+  # ---------------- 训练 / 推理（GPU，按需启动）----------------
+  # 默认不启动（profiles: ml）。镜像较大（~7GB），且训练吃 I/O，
+  # 日常调参建议在主机 venv 里跑，这个容器用于「复现」和「上服务器」。
+  ml:
+    profiles: ["ml"]
+    build:
+      context: .
+      dockerfile: docker/ml.Dockerfile
+    image: uav-alert-ml:dev
+    container_name: uav-ml
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./ml:/workspace/ml
+      - ./data:/data
+      - ./runs:/workspace/runs
+    working_dir: /workspace
+    # PyTorch DataLoader 多 worker 必须给足共享内存，否则报
+    #   RuntimeError: DataLoader worker (pid xxx) is killed by signal: Bus error
+    shm_size: "8gb"
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["bash"]
+
+  # ---------------- 前端（可选）----------------
+  # 需要先有 frontend/（vite 脚手架）。日常推荐主机跑，见 docs/docker-dev.md
+  web:
+    profiles: ["web"]
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: dev
+    image: uav-alert-web:dev
+    container_name: uav-web
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # 浏览器访问的是「主机」的端口，所以这里写 localhost 而不是 api
+      VITE_API_BASE: http://localhost:${API_PORT:-8000}
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      # 关键：用命名卷盖住 node_modules，否则主机的空目录会把容器里装好的依赖冲掉
+      - web_node_modules:/app/node_modules
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+volumes:
+  pgdata:
+  web_node_modules:
