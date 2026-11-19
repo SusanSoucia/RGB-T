@@ -1,21 +1,27 @@
 """标注视频导出。
 
-把「警戒区域轮廓 + 检测框」烧进画面，输出一个可直接下载播放的视频。
+把「警戒区域轮廓 + 检测框」烧进画面，输出可下载播放的视频。
 
-## 两个关键约束
+## 三条实现要点
 
-1. **输出容器必须用 WebM(VP8)，不能用 mp4**
-   本镜像里的 OpenCV 没有 libx264（实测 avc1/H264 都打不开），
-   只能写 mp4v 或 VP8/VP9；而 **mp4v 在 Chromium 里无法播放**。
-   所以输出固定为 `.webm` + VP8，浏览器可以直接播。
+1. **编码**：OpenCV 自带编码器没有 libx264，只能写 mp4v 或 VP8/VP9，
+   而 **mp4v 在 Chromium 里放不了**。所以先用 VP8 写 WebM，
+   再用系统 `ffmpeg` 转成 **H.264(MP4)**——MP4 通用性最好（PPT、手机、浏览器都能放）。
+   没有 ffmpeg 时自动退回 WebM，不会报错。
 
-2. **区域轮廓每一帧都画，检测框只在"已处理帧"上更新**
-   抽帧步长通常 >1，没有那些帧的检测结果。做法是"沿用最近一个已处理帧的框"，
-   这样视频看起来是连续的，框会每 N 帧跳一次（符合实际数据）。
+2. **中文标签**：`cv2.putText` 用 Hershey 矢量字体，**只支持 ASCII**，
+   直接写中文会变成问号。镜像里装了 `fonts-wqy-microhei`，
+   所以这里用 **PIL + 中文字体**绘制；找不到字体时退回 `Region N`。
+
+3. **区域每帧都画，检测框沿用最近的处理帧**：抽帧步长通常 >1，
+   没有那些帧的检测结果，沿用最近一个已处理帧的框，视频看起来才连续。
 """
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -24,30 +30,107 @@ import numpy as np
 from app.core.config import settings
 from app.services.intrusion import region_contains
 
-
 # 配色（BGR）
 COLOR_REGION = (0, 165, 255)      # 橙色：警戒区域
 COLOR_REGION_FILL = (0, 210, 255)
 COLOR_BOX = (60, 200, 60)         # 绿色：区域外目标
 COLOR_BOX_HOT = (40, 40, 230)     # 红色：区域内目标
-COLOR_TEXT_BG = (30, 30, 30)
+COLOR_TEXT_BG = (32, 32, 32)
+
+# 中文字体查找顺序：
+#   1) 仓库里自带的字体（推荐：把任意开源中文字体丢进 backend/app/assets/fonts/）
+#   2) 系统字体（如果镜像里装过 fonts-wqy-microhei / noto-cjk）
+# 都没有时，视频里的区域名退回 "Region N"（cv2 的 Hershey 字体只支持 ASCII）。
+_REPO_FONT_DIR = Path("/app/assets/fonts")
+_FONT_CANDIDATES = (
+    str(_REPO_FONT_DIR / "wqy-microhei.ttc"),
+    str(_REPO_FONT_DIR / "NotoSansCJK-Regular.ttc"),
+    str(_REPO_FONT_DIR / "SourceHanSansCN-Regular.otf"),
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+)
 
 
-def _safe_label(name: str | None, idx: int) -> str:
-    """cv2.putText 用的是 Hershey 矢量字体，**只支持 ASCII**。
+@lru_cache(maxsize=1)
+def cjk_font_path() -> str | None:
+    for p in _FONT_CANDIDATES:
+        if Path(p).exists():
+            return p
+    # 兜底：assets/fonts 下任何 .ttf/.ttc/.otf 都认
+    if _REPO_FONT_DIR.is_dir():
+        for f in sorted(_REPO_FONT_DIR.glob("*")):
+            if f.suffix.lower() in {".ttf", ".ttc", ".otf"}:
+                return str(f)
+    return None
 
-    直接写中文会变成一串问号（容器里也没有中文字体可加载）。
-    所以：纯 ASCII 的名字保留，其余退回 "Region N"。
-    页面上显示的中文名不受影响——那是浏览器 canvas 渲染的。
+
+@lru_cache(maxsize=16)
+def _load_font(size: int):
+    path = cjk_font_path()
+    if not path:
+        return None
+    try:
+        from PIL import ImageFont
+
+        return ImageFont.truetype(path, size)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def draw_text(
+    img: np.ndarray,
+    text: str,
+    x: int,
+    y: int,
+    color_bgr: tuple[int, int, int],
+    size: int = 18,
+    bg_bgr: tuple[int, int, int] | None = None,
+) -> None:
+    """在 BGR 图上画一段文字（支持中文），自动选 PIL 或 cv2。
+
+    y 是文本框顶边；绘制时会在文字下方留 4px 内边距。
     """
+    if not text:
+        return
+
+    font = _load_font(size)
+    if font is not None:
+        from PIL import Image, ImageDraw
+
+        pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil)
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        pad = 4
+        if bg_bgr is not None:
+            draw.rectangle([x, y, x + tw + pad * 2, y + th + pad * 2], fill=tuple(reversed(bg_bgr)))
+        draw.text((x + pad, y + pad - bbox[1]), text, font=font, fill=tuple(reversed(color_bgr)))
+        img[:] = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+        return
+
+    # 没有中文字体：退回 cv2，只能画 ASCII
+    safe = text if text.isascii() else "Region"
+    scale, thick = 0.5, 1
+    (tw, th), base = cv2.getTextSize(safe, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+    if bg_bgr is not None:
+        cv2.rectangle(img, (x, y), (x + tw + 6, y + th + base + 4), bg_bgr, -1)
+    cv2.putText(img, safe, (x + 3, y + th + 3),
+                cv2.FONT_HERSHEY_SIMPLEX, scale, color_bgr, thick, cv2.LINE_AA)
+
+
+def _label_for(name: str | None, idx: int) -> str:
+    """区域名：有中文字体就用原名，否则退回 Region N。"""
     text = (name or "").strip()
     if not text:
         return f"Region {idx}"
-    try:
-        text.encode("ascii")
-        return text
-    except UnicodeEncodeError:
-        return f"Region {idx}"
+    if cjk_font_path() is None:
+        try:
+            text.encode("ascii")
+        except UnicodeEncodeError:
+            return f"Region {idx}"
+    return text
 
 
 def _draw_region(img: np.ndarray, points: list[list[float]], name: str | None, idx: int) -> None:
@@ -63,14 +146,8 @@ def _draw_region(img: np.ndarray, points: list[list[float]], name: str | None, i
 
     cv2.polylines(img, [pts], isClosed=True, color=COLOR_REGION, thickness=2)
 
-    label = _safe_label(name, idx)
-    if label:
-        x, y = pts[0]
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
-        ty = max(th + 6, y - 6)
-        cv2.rectangle(img, (x, ty - th - 6), (x + tw + 8, ty), COLOR_TEXT_BG, -1)
-        cv2.putText(img, label, (x + 4, ty - 4),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLOR_REGION, 2, cv2.LINE_AA)
+    x, y = int(pts[0][0]), int(pts[0][1])
+    draw_text(img, _label_for(name, idx), x + 2, max(0, y - 24), COLOR_REGION, 16, COLOR_TEXT_BG)
 
 
 def _draw_boxes(img: np.ndarray, boxes: list[dict]) -> None:
@@ -82,11 +159,7 @@ def _draw_boxes(img: np.ndarray, boxes: list[dict]) -> None:
         cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
 
         label = f"{b['score']:.2f}" + (" IN" if b.get("inside") else "")
-        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
-        ty = max(th + 4, y1 - 4)
-        cv2.rectangle(img, (x1, ty - th - 4), (x1 + tw + 6, ty), color, -1)
-        cv2.putText(img, label, (x1 + 3, ty - 3),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+        draw_text(img, label, x1, max(0, y1 - 22), (255, 255, 255), 14, color)
 
 
 def render_video(
@@ -97,18 +170,12 @@ def render_video(
     boxes_by_frame: dict[int, list[dict]],
     max_frames: int | None = None,
 ) -> bool:
-    """渲染标注视频。成功返回 True。
-
-    Args:
-        src_path: 源视频
-        out_path: 输出 .webm
-        regions: [{"name": str, "points": [[x,y],...]}]
-        boxes_by_frame: {原始帧号: [{"x1","y1","x2","y2","score","inside"}]}
-    """
+    """把标注烧进画面，先写成 WebM(VP8)。成功返回 True。"""
     cap = cv2.VideoCapture(str(src_path))
     if not cap.isOpened():
         return False
 
+    writer = None
     try:
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
@@ -118,31 +185,25 @@ def render_video(
             return False
 
         limit = max_frames or settings.render_max_frames
-        # 帧数超过上限时按步长抽，保证时长不变、体积可控
         step = 1
         if total > limit > 0:
             step = max(1, total // limit)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        writer = cv2.VideoWriter(
-            str(out_path), cv2.VideoWriter_fourcc(*"VP80"), fps, (w, h)
-        )
+        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"VP80"), fps, (w, h))
         if not writer.isOpened():
             return False
 
-        # 已处理帧的框，按帧号排序后"沿用最近一个"
         processed = sorted(boxes_by_frame.keys())
         cur_idx = -1
+        idx = written = 0
 
-        idx = 0
-        written = 0
         while written < limit:
             ok, frame = cap.read()
             if not ok:
                 break
 
             if idx % step == 0:
-                # 更新到"不超过当前帧的最近一个已处理帧"
                 while cur_idx + 1 < len(processed) and processed[cur_idx + 1] <= idx:
                     cur_idx += 1
                 boxes = boxes_by_frame.get(processed[cur_idx], []) if cur_idx >= 0 else []
@@ -151,22 +212,90 @@ def render_video(
                     _draw_region(frame, r["points"], r.get("name"), ri)
                 _draw_boxes(frame, boxes)
 
-                # 角落写帧号，方便对照
-                txt = f"frame {idx}"
-                cv2.putText(frame, txt, (8, h - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
+                draw_text(frame, f"frame {idx}", 8, h - 30, (225, 225, 225), 14, (45, 45, 45))
 
                 writer.write(frame)
                 written += 1
             idx += 1
     finally:
         cap.release()
-        try:
-            writer.release()
-        except Exception:  # noqa: BLE001
-            pass
+        if writer is not None:
+            try:
+                writer.release()
+            except Exception:  # noqa: BLE001
+                pass
 
     return out_path.exists() and out_path.stat().st_size > 0
+
+
+def _ffmpeg_exe() -> str | None:
+    """找一个能用的 ffmpeg。
+
+    优先系统 ffmpeg（如果镜像里有），否则用 pip 包 `imageio-ffmpeg`
+    自带的那份静态二进制。后者专门用来避开 apt 装 ffmpeg 的坑：
+    apt 要拉 269 个包 / 222MB，受限网络下会反复失败。
+    """
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def ffmpeg_available() -> bool:
+    return _ffmpeg_exe() is not None
+
+
+def transcode_to_mp4(src: Path, dst: Path, timeout_s: int = 300) -> bool:
+    """WebM → H.264 MP4。没有 ffmpeg 或失败都返回 False（由调用方退回 WebM）。"""
+    exe = _ffmpeg_exe()
+    if not exe:
+        return False
+    cmd = [
+        exe, "-y", "-loglevel", "error",
+        "-i", str(src),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        str(dst),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout_s)
+    except Exception:  # noqa: BLE001
+        return False
+    return proc.returncode == 0 and dst.exists() and dst.stat().st_size > 0
+
+
+def export_annotated(
+    *,
+    src_path: Path,
+    out_dir: Path,
+    stem: str,
+    regions: list[dict],
+    boxes_by_frame: dict[int, list[dict]],
+    prefer_mp4: bool = True,
+) -> tuple[Path, str] | None:
+    """渲染并（可选）转码，返回 (文件路径, mime)。失败返回 None。"""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    webm = out_dir / f"{stem}.webm"
+
+    if not render_video(
+        src_path=src_path, out_path=webm,
+        regions=regions, boxes_by_frame=boxes_by_frame,
+    ):
+        return None
+
+    if prefer_mp4 and ffmpeg_available():
+        mp4 = out_dir / f"{stem}.mp4"
+        if mp4.exists() and mp4.stat().st_mtime >= webm.stat().st_mtime:
+            return mp4, "video/mp4"
+        if transcode_to_mp4(webm, mp4):
+            return mp4, "video/mp4"
+
+    return webm, "video/webm"
 
 
 def boxes_from_detections(

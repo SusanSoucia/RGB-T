@@ -514,13 +514,17 @@ const url = URL.createObjectURL(await res.blob());
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/detect-tasks/{id}/render?refresh=false` | 渲染并下载**区域轮廓 + 检测框**烧进画面的视频 |
+| GET | `/api/detect-tasks/{id}/render?refresh=false&format=auto` | 渲染并下载**区域轮廓 + 检测框**烧进画面的视频 |
 
-- 返回 `video/webm`（VP8）。**不能输出 mp4**：容器无 libx264，mp4v 浏览器放不了。
+- `format`：`auto`（默认）→ 有 ffmpeg 就出 **MP4/H.264**，否则 **WebM/VP8**；
+  也可显式指定 `mp4` / `webm`。
+- MP4 的编码器来自 pip 包 `imageio-ffmpeg` 自带的静态 ffmpeg（不依赖 apt）。
 - 只对 `media_type=video` 的任务有效，静态图片返回 `422`。
 - 结果缓存在 `settings.render_dir`，`refresh=true` 强制重渲染。
-- 渲染是**同步**的：视频越长耗时越久，帧数上限由 `settings.render_max_frames`（默认 900）控制，超出按步长抽帧保证时长不变。
-- 视频里的区域名用英文占位（`Region N`）：`cv2.putText` 只支持 ASCII。
+- 渲染是**同步**的：帧数上限由 `settings.render_max_frames`（默认 900）控制，
+  超出按步长抽帧保证时长不变。
+- 视频里的区域名默认英文 `Region N`（`cv2.putText` 只支持 ASCII）；
+  把开源中文字体放进 `backend/app/assets/fonts/` 即可显示中文。
 
 ### 12.4 跨域
 

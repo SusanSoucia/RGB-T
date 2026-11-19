@@ -15,11 +15,33 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai
 WORKDIR /app
 
-# build-essential / libpq-dev 给 psycopg 与可能的源码编译用
-# libglib2.0-0 + libgomp1 是 opencv 与 numpy 的运行依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libpq-dev curl ca-certificates tzdata \
-        libglib2.0-0 libgomp1 \
+# 只装真正需要的运行时库：
+#   curl        —— 容器健康检查用
+#   tzdata      —— 时区（Asia/Shanghai）
+#   libglib2.0-0, libgomp1 —— opencv / numpy 的运行依赖
+#
+# **不装 build-essential / libpq-dev**：psycopg[binary] 是预编译 wheel，
+# 不需要编译器和 libpq 头文件。带上它们会多拉 100 多个包（gcc/perl/binutils…），
+# 构建时间和镜像体积都翻倍，受限网络下极易失败。
+#
+# **不装 ffmpeg**：改用 pip 的 imageio-ffmpeg（自带静态 ffmpeg，25MB），
+# 见 requirements.txt 的说明。
+#
+# 源换成阿里云镜像（**必须 https**）：实测容器内
+#   - 直连 deb.debian.org：限速到 ~900B/s
+#   - 走宿主代理：随机 502
+#   - 阿里云 80 端口：404/连接失败
+#   - 阿里云 443：6 秒拿到索引，稳定
+RUN set -e; \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+        if [ -f "$f" ]; then \
+            sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' "$f"; \
+            sed -i 's|http://mirrors.aliyun.com|https://mirrors.aliyun.com|g' "$f"; \
+        fi; \
+    done; \
+    apt-get update -o Acquire::Retries=3 \
+    && apt-get install -y --no-install-recommends -o Acquire::Retries=3 \
+        curl ca-certificates tzdata libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt /tmp/requirements.txt

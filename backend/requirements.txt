@@ -23,3 +23,9 @@ numpy==1.26.4
 pillow==11.0.0
 opencv-python-headless==4.10.0.84
 openpyxl==3.1.5
+
+# 导出标注视频时把 WebM 转成 H.264(MP4)。
+# 这个包自带一份静态 ffmpeg（~25MB），所以**不需要 apt 装 ffmpeg**——
+# 实测 apt 在受限网络下要拉 269 个包 / 222MB 且频繁 502，构建会反复失败；
+# 走 PyPI 稳定得多。
+imageio-ffmpeg==0.6.0

@@ -26,7 +26,7 @@ from app.models.enums import MediaType, TaskStatus
 from app.schemas import DetectionOut, FrameOut, Page, TaskCreate, TaskOut
 from app.services.frames import frame_image_path
 from app.services.pipeline import run_task
-from app.services.render import boxes_from_detections, render_video
+from app.services.render import boxes_from_detections, export_annotated
 
 router = APIRouter(prefix="/detect-tasks", tags=["detect"])
 
@@ -151,15 +151,18 @@ def get_task_detections(
 def render_task(
     task_id: int,
     refresh: bool = Query(False, description="true 则忽略缓存重新渲染"),
+    fmt: str = Query("auto", alias="format", pattern="^(auto|mp4|webm)$",
+                     description="auto=有 ffmpeg 就给 MP4，否则退回 WebM"),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> FileResponse:
-    """把警戒区域轮廓和检测框烧进画面，输出可下载的 WebM。
+    """把警戒区域轮廓和检测框烧进画面，输出可下载的视频。
 
     - **每一帧都画区域轮廓**，方便一眼看出重点区域；
-    - 检测框只在"已处理帧"上更新（抽帧步长 >1 时沿用最近一个已处理帧）；
-    - 输出固定 **WebM(VP8)**：容器里没有 H.264 编码器，而 mp4v 浏览器放不了。
-    - 结果缓存在 `settings.render_dir`，加 `?refresh=true` 可强制重渲染。
+    - 检测框只在「已处理帧」上更新（抽帧步长 >1 时沿用最近一个已处理帧）；
+    - 默认输出 **H.264 MP4**（靠系统 ffmpeg 转码），PPT/手机/浏览器都能放；
+      没有 ffmpeg 时自动退回 **WebM(VP8)**；
+    - 结果缓存在 `settings.render_dir`，加 `?refresh=true` 强制重渲染。
     """
     task = _get_task(db, task_id, user)
     media = db.get(Media, task.media_id)
@@ -167,50 +170,48 @@ def render_task(
         raise not_found("媒体")
 
     if media.media_type != MediaType.video:
-        raise ApiError(
-            "MEDIA_UNSUPPORTED_FORMAT",
-            "该任务是静态图片，没有可导出的视频",
-            422,
-        )
+        raise ApiError("MEDIA_UNSUPPORTED_FORMAT", "该任务是静态图片，没有可导出的视频", 422)
 
     src = Path(settings.upload_dir) / media.stored_path
     if not src.exists():
         raise not_found("源视频")
 
     out_dir = Path(settings.render_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"task_{task.id}.webm"
+    stem = f"task_{task.id}"
+    prefer_mp4 = fmt != "webm"
 
-    if not out_path.exists() or refresh:
-        regions = [
-            {"name": r.name, "points": r.points}
-            for r in db.scalars(
-                select(Region).where(Region.media_id == media.id, Region.is_active.is_(True))
-            )
-        ]
+    # 命中缓存直接返回，避免每次下载都重渲染
+    if not refresh:
+        cached = out_dir / (f"{stem}.mp4" if prefer_mp4 else f"{stem}.webm")
+        if cached.exists():
+            mime = "video/mp4" if cached.suffix == ".mp4" else "video/webm"
+            return FileResponse(cached, media_type=mime, filename=cached.name)
 
-        dets = db.scalars(select(Detection).where(Detection.task_id == task.id)).all()
-        det_dicts = [
-            {
-                "frame_index": d.frame_index,
-                "x1": d.x1, "y1": d.y1, "x2": d.x2, "y2": d.y2,
-                "score": d.score,
-            }
-            for d in dets
-        ]
-        boxes_by_frame = boxes_from_detections(det_dicts, regions)
-
-        ok = render_video(
-            src_path=src,
-            out_path=out_path,
-            regions=regions,
-            boxes_by_frame=boxes_by_frame,
+    regions = [
+        {"name": r.name, "points": r.points}
+        for r in db.scalars(
+            select(Region).where(Region.media_id == media.id, Region.is_active.is_(True))
         )
-        if not ok:
-            raise ApiError("INFERENCE_FAILED", "标注视频渲染失败", 500)
+    ]
 
-    return FileResponse(
-        out_path,
-        media_type="video/webm",
-        filename=f"task{task.id}_annotated.webm",
+    dets = db.scalars(select(Detection).where(Detection.task_id == task.id)).all()
+    det_dicts = [
+        {"frame_index": d.frame_index, "x1": d.x1, "y1": d.y1,
+         "x2": d.x2, "y2": d.y2, "score": d.score}
+        for d in dets
+    ]
+    boxes_by_frame = boxes_from_detections(det_dicts, regions)
+
+    result = export_annotated(
+        src_path=src,
+        out_dir=out_dir,
+        stem=stem,
+        regions=regions,
+        boxes_by_frame=boxes_by_frame,
+        prefer_mp4=prefer_mp4,
     )
+    if result is None:
+        raise ApiError("INFERENCE_FAILED", "标注视频渲染失败", 500)
+
+    path, mime = result
+    return FileResponse(path, media_type=mime, filename=f"{stem}_annotated{path.suffix}")

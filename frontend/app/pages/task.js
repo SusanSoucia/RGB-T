@@ -148,8 +148,9 @@
     chkRegions.onchange = () => { showRegions = chkRegions.checked; redraw(); };
   }
 
-  /* 下载标注视频：区域轮廓 + 检测框烧进画面，后端渲染成 WebM。
-     注意下载要带 token，不能用 <a href> 直连，所以走 fetch → blob → 临时链。 */
+  /* 下载标注视频：区域轮廓 + 检测框烧进画面，后端渲染。
+     默认出 MP4(H.264)，没有 ffmpeg 时退回 WebM。
+     下载要带 token，不能用 <a href> 直连，所以走 fetch → blob → 临时链。 */
   const btnDownload = $('#btnDownload');
   if (btnDownload) {
     btnDownload.onclick = async () => {
@@ -165,16 +166,24 @@
           try { detail = (await res.json()).message || ''; } catch { /* 非 JSON */ }
           throw new Error(detail || `HTTP ${res.status}`);
         }
+
+        // 文件名和格式都以后端返回为准（可能是 mp4，也可能退回 webm）
+        let name = `task${task.id}_annotated.mp4`;
+        const cd = res.headers.get('content-disposition') || '';
+        const m = cd.match(/filename="?([^"]+)"?/);
+        if (m) name = m[1];
+        const isWebm = name.endsWith('.webm');
+
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `task${task.id}_annotated.webm`;
+        a.download = name;
         document.body.appendChild(a);
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
-        toast('标注视频已开始下载（WebM 格式）');
+        toast(`标注视频已开始下载（${isWebm ? 'WebM' : 'MP4'}）`);
       } catch (err) {
         toast('导出失败：' + err.message, true);
       } finally {
@@ -412,11 +421,10 @@
     btn.onclick = () => {
       const ts = btn.dataset.ts;
       if (ts === '') { toast('该帧没有时间戳', true); return; }
+      // 选帧后**保持暂停**，方便停在画面上看框和区域
       vid.pause();
       vid.currentTime = Number(ts) / 1000;
       fitBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // 手动跳转后自动恢复播放，方便连续查看
-      setTimeout(() => { vid.play().catch(() => {}); }, 250);
     };
   });
 
