@@ -26,13 +26,26 @@
     btn.textContent = '提交中…';
     try {
       await api('/auth/register', { method: 'POST', body: { username, password, display_name } });
-      msg.innerHTML = '<div class="form-ok">注册成功，正在跳转登录…</div>';
-      setTimeout(() => { location.replace('login.html'); }, 900);
+      msg.innerHTML = '<div class="form-ok">注册成功，正在登录…</div>';
+
+      // 注册完直接登录，省得再手输一次密码
+      try {
+        const data = await api('/auth/login', { method: 'POST', body: { username, password } });
+        AUTH.token = data.access_token;
+        AUTH.user = data.user;
+        localStorage.setItem('token', AUTH.token);
+        location.replace('tasks.html');
+        return;
+      } catch {
+        // 自动登录失败不阻断：退回手动登录页
+        setTimeout(() => { location.replace('login.html'); }, 800);
+        return;
+      }
     } catch (err) {
-      // 后端默认关闭自主注册（需求 FR-01），给出可操作提示
+      // 后端默认开放注册；只有被显式关掉时才会走到这里
       const tip = err.code === 'REGISTER_DISABLED'
-        ? '本系统不开放自主注册，请联系管理员开通账号。'
-        : err.message;
+        ? '管理员暂时关闭了自主注册，请联系管理员开通账号。'
+        : err.code === 'AUTH_USERNAME_TAKEN' ? '该用户名已被占用，换一个试试。' : err.message;
       msg.innerHTML = `<div class="form-err">${esc(tip)}</div>`;
       btn.disabled = false;
       btn.textContent = '注 册';

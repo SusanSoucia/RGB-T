@@ -19,11 +19,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
 
     # 是否开放自主注册。
-    # ⚠️ 需求说明书 FR-01 明确"不开放自主注册"，账户由管理员创建，
-    # 验收时也会检查这一点。所以默认 False：注册页可以展示，
-    # 但后端会返回 REGISTER_DISABLED，提示联系管理员。
-    # 演示/比赛需要开放时再临时打开，不要提交成 True。
-    allow_self_register: bool = False
+    # 需求说明书 V1.0 的 FR-01 原本写的是"不开放自主注册"，**经确认该条为笔误**，
+    # 实际要支持用户在登录页自行注册，所以默认开启。
+    # 自主注册只能拿到 user 角色，注册不出管理员。
+    # 如需临时关闭（比如演示前锁定），把 ALLOW_SELF_REGISTER 设为 false 即可。
+    allow_self_register: bool = True
 
     # 前端独立部署时的跨域来源（独立前端跑在 5173）
     cors_origins: list[str] = [

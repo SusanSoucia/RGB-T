@@ -46,6 +46,9 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-uav}:${POSTGRES_PASSWORD:-uav_dev_pw}@db:5432/${POSTGRES_DB:-uav}
       SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
       PYTHONPATH: /app
+      # 开放自主注册（需求说明书 FR-01 那条"不开放注册"已确认是笔误）。
+      # 想临时关掉（比如演示前锁定）就改成 "false"，注册接口会返回 REGISTER_DISABLED。
+      ALLOW_SELF_REGISTER: ${ALLOW_SELF_REGISTER:-true}
       # Windows 上 bind mount 的文件变更事件常常不触发，
       # 打开轮询才能让 uvicorn --reload 真正生效（代价是一点 CPU）
       WATCHFILES_FORCE_POLLING: "true"
