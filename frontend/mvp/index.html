@@ -350,19 +350,40 @@ function render() {
   ctx.drawImage(S.img, 0, 0, canvas.width, canvas.height);
   const W = canvas.width, H = canvas.height;
 
-  // 已保存的区域（黄色实线）
-  ctx.lineWidth = Math.max(2, W / 400);
+  // ---- 已保存的区域：半透明填充 + 轮廓，任何缩放比例下都看得见 ----
+  const regionLw = Math.max(3, Math.round(W / 300));
   ctx.setLineDash([]);
-  ctx.strokeStyle = '#f59e0b';
-  for (const r of S.regions) drawPoly(r.points, W, H);
+  for (const r of S.regions) {
+    const pts = r.points;
+    if (!pts || pts.length < 3) continue;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0] * W, pts[0][1] * H);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] * W, pts[i][1] * H);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+    ctx.fill();
+    ctx.lineWidth = regionLw;
+    ctx.strokeStyle = '#f59e0b';
+    ctx.stroke();
 
-  // 正在拖拽的矩形（红色虚线）
+    ctx.font = `${Math.max(14, Math.round(W / 50))}px ui-monospace,monospace`;
+    ctx.fillStyle = '#b45309';
+    ctx.fillText(r.name || `区域${r.id}`,
+                 pts[0][0] * W + regionLw * 2,
+                 pts[0][1] * H + Math.max(20, W / 40));
+  }
+
+  // ---- 正在拖拽的矩形（红色虚线）：先把坐标归一成左上/右下 ----
   if (S.drag) {
-    const { x1, y1, x2, y2 } = S.drag;
-    ctx.setLineDash([8, 6]);
+    const dx1 = Math.min(S.drag.x1, S.drag.x2), dy1 = Math.min(S.drag.y1, S.drag.y2);
+    const dx2 = Math.max(S.drag.x1, S.drag.x2), dy2 = Math.max(S.drag.y1, S.drag.y2);
+    ctx.setLineDash([10, 8]);
+    ctx.lineWidth = regionLw;
     ctx.strokeStyle = '#ef4444';
-    ctx.strokeRect(x1 * W, y1 * H, (x2 - x1) * W, (y2 - y1) * H);
+    ctx.strokeRect(dx1 * W, dy1 * H, (dx2 - dx1) * W, (dy2 - dy1) * H);
     ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+    ctx.fillRect(dx1 * W, dy1 * H, (dx2 - dx1) * W, (dy2 - dy1) * H);
   }
 
   // 检测框（绿=普通，红=中心落在区域内）
@@ -378,15 +399,6 @@ function render() {
   }
 }
 
-function drawPoly(points, W, H) {
-  if (!points || points.length < 2) return;
-  ctx.beginPath();
-  ctx.moveTo(points[0][0] * W, points[0][1] * H);
-  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0] * W, points[i][1] * H);
-  ctx.closePath();
-  ctx.stroke();
-}
-
 function pointInPoly(x, y, pts) {
   let inside = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -397,6 +409,12 @@ function pointInPoly(x, y, pts) {
 }
 
 // ---------------------------------------------------------------- 画区域
+// 关键：用「鼠标键是否按下」这个状态来驱动，**不能只看 S.drag 是否存在**。
+// 之前只判断 S.drag，而 mouseup 又没有清空它，于是松开鼠标后移动鼠标仍在
+// 改矩形——表现就是"没拖拽也在画框"。
+let isDrawing = false;
+const MIN_SIZE = 0.02;   // 归一化最小边长；低于它按"点击"处理，不留退化矩形
+
 function norm(ev) {
   const r = canvas.getBoundingClientRect();
   const x = (ev.clientX - r.left) / r.width;
@@ -404,48 +422,98 @@ function norm(ev) {
   return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
 }
 
+/** 把拖拽原始坐标归一成 (x1<x2, y1<y2)，否则反方向拖会得到负宽高。 */
+function dragRect() {
+  if (!S.drag) return null;
+  return {
+    x1: Math.min(S.drag.x1, S.drag.x2),
+    y1: Math.min(S.drag.y1, S.drag.y2),
+    x2: Math.max(S.drag.x1, S.drag.x2),
+    y2: Math.max(S.drag.y1, S.drag.y2),
+  };
+}
+
+function rectIsValid(r) {
+  return !!r && (r.x2 - r.x1) >= MIN_SIZE && (r.y2 - r.y1) >= MIN_SIZE;
+}
+
 canvas.addEventListener('mousedown', (ev) => {
-  if (!S.img) return;
+  if (!S.img || ev.button !== 0) return;
+  ev.preventDefault();
   const p = norm(ev);
   S.drag = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
-  $('btnSaveRegion').disabled = false;
+  isDrawing = true;
+  $('btnSaveRegion').disabled = true;   // 还没拖出有效尺寸，先禁用它
   render();
 });
+
 canvas.addEventListener('mousemove', (ev) => {
-  if (!S.drag) return;
+  if (!isDrawing || !S.drag) return;    // ← 没按住左键就什么都不做
   const p = norm(ev);
-  S.drag.x2 = p.x; S.drag.y2 = p.y;
+  S.drag.x2 = p.x;
+  S.drag.y2 = p.y;
+  $('btnSaveRegion').disabled = !rectIsValid(dragRect());
   render();
 });
-window.addEventListener('mouseup', () => { if (S.drag) render(); });
+
+function endDrag() {
+  if (!isDrawing) return;
+  isDrawing = false;
+  // 只是点了一下、或抖动幅度太小 → 当作没画，清掉矩形
+  if (!rectIsValid(dragRect())) {
+    S.drag = null;
+    $('btnSaveRegion').disabled = true;
+  }
+  render();
+}
+canvas.addEventListener('mouseup', endDrag);
+// 在画布外松开也要结束，否则会一直处于"拖拽中"
+window.addEventListener('mouseup', endDrag);
 
 $('btnSaveRegion').onclick = async () => {
-  if (!S.drag || !S.media) return;
-  let { x1, y1, x2, y2 } = S.drag;
-  if (Math.abs(x2 - x1) < 0.02 || Math.abs(y2 - y1) < 0.02) { log('区域太小，重画一个'); return; }
-  const pts = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]].map(p => [+p[0].toFixed(5), +p[1].toFixed(5)]);
+  if (!S.media) return;
+  const r = dragRect();
+  if (!rectIsValid(r)) { log('请先在画面上按住左键拖出一个像样的矩形'); return; }
+
+  const pts = [[r.x1, r.y1], [r.x2, r.y1], [r.x2, r.y2], [r.x1, r.y2]]
+    .map((p) => [+p[0].toFixed(5), +p[1].toFixed(5)]);
+
   try {
-    const r = await api('/regions', {
+    const saved = await api('/regions', {
       method: 'POST',
-      body: { media_id: S.media.id, name: '区域' + (S.regions.length + 1),
-              shape_type: 'rect', points: pts },
+      body: {
+        media_id: S.media.id,
+        name: '区域' + (S.regions.length + 1),
+        shape_type: 'rect',
+        points: pts,
+      },
     });
-    log(`区域已保存 #${r.id}`);
+    log(`区域已保存 #${saved.id}  ${JSON.stringify(pts)}`);
     S.drag = null;
+    isDrawing = false;
+    $('btnSaveRegion').disabled = true;
     await refreshRegions();
-  } catch (e) { log('保存区域失败：' + e.message); }
+    if (S.img) render();          // 再渲染一次，确保橙色轮廓立刻出现
+  } catch (e) {
+    log('保存区域失败：' + e.message + (e.code ? ` (${e.code})` : ''));
+  }
 };
 
-$('btnClearRegion').onclick = () => { S.drag = null; if (S.img) render(); };
+$('btnClearRegion').onclick = () => {
+  S.drag = null;
+  isDrawing = false;
+  $('btnSaveRegion').disabled = true;
+  if (S.img) render();
+};
 
 async function refreshRegions() {
   if (!S.media) return;
   S.regions = await api('/regions?media_id=' + S.media.id);
   const box = $('regionsBox');
   if (!S.regions.length) box.innerHTML = '<span class="muted">尚未创建</span>';
-  else box.innerHTML = S.regions.map(r =>
-      `#${r.id} ${r.name}（${r.shape_type}，${r.points.length} 点）`)
-    .join('<br>') + '<div class="muted" style="margin-top:6px">注意：区域只在检测时生效，改完要重新检测。</div>';
+  else box.innerHTML =
+    S.regions.map((x) => `#${x.id} ${x.name}（${x.shape_type}，${x.points.length} 点）`).join('<br>') +
+    '<div class="muted" style="margin-top:6px">画面上橙色半透明块就是已保存的警戒区；改完要重新检测才生效。</div>';
   if (S.img) render();
 }
 

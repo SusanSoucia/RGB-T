@@ -143,6 +143,16 @@ IR_WEIGHTS:  /app/ml/weights/ir_best.pt
 MVP 里已经实现了拖拽画框 + 框叠加，可以直接抄坐标换算那段逻辑
 （`norm()` 和 `render()`，用 `getBoundingClientRect` + 归一化，不用管 canvas 尺寸）。
 
+**画框逻辑有回归测试**，改完先跑一次（不需要浏览器）：
+
+```powershell
+node frontend/mvp/test/draw.test.js frontend/mvp/index.html
+```
+
+它用桩 DOM 驱动真实脚本，断言 18 项行为：单击不留退化矩形、松开鼠标后移动不再改框、
+反向拖拽要归一化、已保存区域必须被填充/描边/标名。坐标换算是需求 §3.2.1 的验收点，
+肉眼看不出对错，靠这个兜。
+
 ### 后端同学（B）
 
 **现状**：`auth / media / regions / tasks / alerts` 五个路由已通；缺 `users`（账户管理）和 `export`（Excel）。
