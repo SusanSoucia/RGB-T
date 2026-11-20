@@ -28,5 +28,5 @@
 ```powershell
 # 重新渲染（带 refresh 强制忽略缓存）
 curl.exe -H "Authorization: Bearer <token>" ^
-  "http://localhost:8000/api/detect-tasks/25/render?refresh=true"
+  "http://localhost:17800/api/detect-tasks/25/render?refresh=true"
 ```

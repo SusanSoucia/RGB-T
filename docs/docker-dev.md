@@ -174,13 +174,13 @@ docker compose ps
 验证链路：
 
 ```powershell
-curl http://localhost:8000/health        # {"status":"ok",...}
-curl http://localhost:8000/health/db     # {"db":"ok","version":"PostgreSQL 16.x ..."}
+curl http://localhost:17800/health        # {"status":"ok",...}
+curl http://localhost:17800/health/db     # {"db":"ok","version":"PostgreSQL 16.x ..."}
 ```
 
 **`/health/db` 返回 ok 才算环境搭好了**——它证明「容器网络 + 后端 → 数据库」整条链路通。
 
-打开接口文档：<http://localhost:8000/docs>
+打开接口文档：<http://localhost:17800/docs>
 
 ---
 
@@ -214,7 +214,7 @@ docker system prune -a               # ⚠️ 清掉所有未使用镜像/容器
 ```
 
 **PowerShell 小抄**：`curl` 是 `Invoke-WebRequest` 的别名，直接 `curl http://...` 会报错。
-用 `curl.exe http://localhost:8000/health`（带 `.exe`）或者 `Invoke-RestMethod`。
+用 `curl.exe http://localhost:17800/health`（带 `.exe`）或者 `Invoke-RestMethod`。
 
 ---
 
@@ -362,7 +362,7 @@ docker compose up -d --build
 **验收**：`docker compose ps` 两个服务都 `healthy`，且
 
 ```powershell
-curl.exe http://localhost:8000/health/db    # {"db":"ok",...}
+curl.exe http://localhost:17800/health/db    # {"db":"ok",...}
 ```
 
 ### 5.4 数据集怎么共享
@@ -388,7 +388,7 @@ curl.exe http://localhost:8000/health/db    # {"db":"ok",...}
 **组员拿到环境后的第一件事不是「拷文件」，而是验证自己的能跑起来**：
 
 ```powershell
-curl.exe http://localhost:8000/health/db
+curl.exe http://localhost:17800/health/db
 # {"db":"ok",...} 才算通
 ```
 
@@ -481,7 +481,7 @@ Vite 的 HMR 依赖大量文件监听，而 Windows bind mount 上监听又慢�
 ```powershell
 cd frontend
 npm install
-npm run dev          # localhost:5173，代理到 localhost:8000
+npm run dev          # localhost:17880，代理到 localhost:17800
 ```
 
 真要容器化（比如统一给答辩机器演示），用 `--profile web`，前提是先有 `frontend/`：
@@ -535,8 +535,8 @@ docker compose --profile web up -d
 - [ ] `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` 能看到 4050
 - [ ] `torch.cuda.is_available()` 为 `True`
 - [ ] `docker compose up -d` 后 `docker compose ps` 两个服务都是 `healthy` / `running`
-- [ ] `curl.exe http://localhost:8000/health` 返回 ok
-- [ ] `curl.exe http://localhost:8000/health/db` 返回 `"db":"ok"`
+- [ ] `curl.exe http://localhost:17800/health` 返回 ok
+- [ ] `curl.exe http://localhost:17800/health/db` 返回 `"db":"ok"`
 - [ ] `.env` 已在 `.gitignore` 里，`git status` 看不到它
 - [ ] `docker compose down && docker compose up -d` 能干净重建
 

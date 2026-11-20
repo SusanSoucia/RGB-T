@@ -17,11 +17,14 @@
  * 两个必须遵守的约束：
  * 1. 取图/取视频必须用带 token 的 fetch 换 blob —— <img>/<video> 的 src
  *    带不了 Authorization 头，直连会 401。
- * 2. 前端跑在 5173、后端在 8000，属于跨域，后端已开 CORS（只放行这两个来源）。
+ * 2. 前端与后端不同源，后端已开 CORS（放行 localhost 任意端口）。
+ *    后端端口写在 config.js 的 APP_CONFIG.apiPort，改端口时两处一起改。
  * ========================================================================== */
 
+const API_PORT = (window.APP_CONFIG && window.APP_CONFIG.apiPort) || 17800;
+
 const API_BASE =
-  localStorage.getItem('apiBase') || `${location.protocol}//${location.hostname}:8000`;
+  localStorage.getItem('apiBase') || `${location.protocol}//${location.hostname}:${API_PORT}`;
 
 const AUTH = {
   token: localStorage.getItem('token') || '',

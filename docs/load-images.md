@@ -95,7 +95,7 @@ docker compose exec api python -m app.scripts.seed_admin
 验证：
 
 ```bash
-curl -s http://localhost:8000/health/db
+curl -s http://localhost:17800/health/db
 # {"db":"ok", ..., "public_tables":8, "detector_backend":"stub"}
 ```
 
@@ -113,8 +113,8 @@ docker compose --profile web up -d
 
 | 入口 | 地址 |
 |---|---|
-| 业务前端 | <http://localhost:5173/> |
-| 接口文档 | <http://localhost:8000/docs> |
+| 业务前端 | <http://localhost:17880/> |
+| 接口文档 | <http://localhost:17800/docs> |
 
 登录：`admin` / `Admin@12345`（也可以自己注册一个普通用户）
 

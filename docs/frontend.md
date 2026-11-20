@@ -8,21 +8,21 @@
 ## 1. 怎么跑
 
 ```powershell
-docker compose up -d                       # 后端 8000 + 数据库
-docker compose --profile web up -d         # 前端 5173
+docker compose up -d                       # 后端 17800 + 数据库
+docker compose --profile web up -d         # 前端 17880
 ```
 
-打开 **<http://localhost:5173/>**，用 `admin / Admin@12345` 登录。
+打开 **<http://localhost:17880/>**，用 `admin / Admin@12345` 登录。
 
 ### 多页结构（每个界面一个独立 URL）
 
 ```
-http://localhost:5173/login.html         登录
-http://localhost:5173/register.html      注册
-http://localhost:5173/upload.html        上传素材 + 划定警戒区域
-http://localhost:5173/tasks.html         检测任务列表
-http://localhost:5173/task.html?id=17    检测详情
-http://localhost:5173/alerts.html        报警情况
+http://localhost:17880/login.html         登录
+http://localhost:17880/register.html      注册
+http://localhost:17880/upload.html        上传素材 + 划定警戒区域
+http://localhost:17880/tasks.html         检测任务列表
+http://localhost:17880/task.html?id=17    检测详情
+http://localhost:17880/alerts.html        报警情况
 ```
 
 `index.html` 只是个跳转入口：有 token 去 `tasks.html`，否则去 `login.html`。
@@ -117,7 +117,7 @@ ID | 媒体文件 | 分辨率 | 帧率 | 总帧数 | 总时长 | 模式 | 状态
 
 | 补充 | 为什么需要 |
 |---|---|
-| **CORS**（只放行 5173 / 8000） | 前端和后端不同源，浏览器默认拦跨域请求 |
+| **CORS**（放行 localhost 任意端口） | 前端和后端不同源，浏览器默认拦跨域请求 |
 | `GET /api/media/{id}/video` | 播放和跳看需要原始视频；`FileResponse` 自带 Range → 可拖进度条 |
 | 任务响应带 `media` 摘要 | 界面 1 要显示媒体名/分辨率/帧率/帧数/时长。放进任务响应里，20 条任务就省掉 20 次额外请求（避免 N+1） |
 | 告警响应带 `snapshot_url` + `media_name` | 界面 3 的缩略图与媒体名。（媒体名是批量查的，同样避免 N+1） |
@@ -225,7 +225,7 @@ await vid.play();        // 被拦截则退回手动，并提示用户点「播�
 
 ## 7. 交给前端组员的建议
 
-1. **先跑一遍再改**：`docker compose --profile web up -d` → 5173 看四个页面
+1. **先跑一遍再改**：`docker compose --profile web up -d` → http://localhost:17880 看页面
 2. **换 Vue 时接口不用动**：契约在 `docs/api.md`，本次新增的 video / media 摘要 /
    snapshot_url 已经写进该文档
 3. **两个坑务必保留处理方式**：blob 取媒体、H.264 要求（见 §5）

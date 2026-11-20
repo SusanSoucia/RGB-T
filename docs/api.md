@@ -524,8 +524,8 @@ const url = URL.createObjectURL(await res.blob());
 
 ### 12.4 跨域
 
-前端跑在 `5173`、后端在 `8000`，属于跨域。后端已开 CORS，只放行
-`settings.cors_origins` 里列出的来源（默认 5173 / 8000），**不使用通配符**。
+前端与后端不同源，属于跨域。后端已开 CORS：
+除 `settings.cors_origins` 白名单外，用正则放行 `localhost` / `127.0.0.1` 的**任意端口**（不用 `*` 敞开公网来源）。
 
 ---
 

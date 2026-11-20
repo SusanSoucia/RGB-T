@@ -107,8 +107,13 @@ services:
     command: ["bash"]
 
   # ---------------- 独立前端 ----------------
-  # frontend/app 是**无需构建**的静态站点（原生 ES module），用一个极简静态
-  # 服务器托管在 5173，与后端 8000 不同源，所以后端开了 CORS。
+  # frontend/app 是**无需构建**的静态站点（原生 JS），用一个极简静态
+  # 服务器托管在容器内 5173，与后端不同源，所以后端开了 CORS。
+  #
+  # ⚠️ 宿主端口默认是 17880（不是 5173）：5173 会落进 Windows 的保留端口段，
+  #    容器起不来（bind: ... forbidden by its access permissions）。
+  #    容器内端口保持不变，只改宿主映射，这样 e2e 等容器内脚本都不用动。
+  #
   # 之所以不用 Node/Vite：本机没装 npm，且拉 node_modules 要几百 MB，
   # 现阶段没必要。等前端组员决定上 Vue 时，再换回 docker/web.Dockerfile。
   web:

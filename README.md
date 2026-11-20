@@ -326,7 +326,7 @@ uav-alert-system/
 │   │   └── scripts/          # seed_admin / smoke_test / e2e_test
 │   └── tests/
 ├── frontend/                 # 前端
-│   ├── app/                  # ★ 独立前端（多页，跑在 5173）
+│   ├── app/                  # ★ 独立前端（多页，宿主 17880）
 │   │   ├── index.html        # 入口跳转
 │   │   ├── login.html / register.html
 │   │   ├── upload.html       # 上传素材 + 划定警戒区域
@@ -370,18 +370,18 @@ uav-alert-system/
 **已经能端到端跑通**（模型用桩替代，检测逻辑真实）。现在有**两套前端**：
 
 ```powershell
-docker compose up -d                        # 后端 8000 + 数据库
-docker compose --profile web up -d          # 独立前端 5173
+docker compose up -d                        # 后端 17800 + 数据库
+docker compose --profile web up -d          # 独立前端 17880
 
-# ① 独立前端（按《登录界面.docx》实现）：http://localhost:5173/
+# ① 独立前端（按《登录界面.docx》实现）：http://localhost:17880/
 #    登录/注册 + 检测任务列表 + 检测详情(播放/进度/报警标记) + 报警画廊
-# ② MVP 控制台（含上传与画框）：http://localhost:8000/ui/
+# ② MVP 控制台（含上传与画框）：http://localhost:17800/ui/
 ```
 
 两套前端共用同一套后端接口。上传入口目前在 MVP 控制台里
 （业务界面文档未要求上传，见 `docs/frontend.md` §6）。
 
-接口文档：<http://localhost:8000/docs>
+接口文档：<http://localhost:17800/docs>
 
 | 能力 | 状态 |
 |---|---|
