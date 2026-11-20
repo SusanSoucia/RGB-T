@@ -140,6 +140,7 @@ docker compose exec api python -m app.scripts.e2e_test
 | 登录提示用户名或密码错误 | 忘了跑 `seed_admin`，库里没有账号 |
 | `docker load` 报 `unexpected EOF` | 下载不完整，重新下载并用 §1 校验 |
 | `port is already allocated` | 改 `.env` 里的 `API_PORT` / `WEB_PORT` / `POSTGRES_PORT` |
+| web 容器报 `bind: An attempt was made to access a socket in a way forbidden` | **不是被占用，是落在 Windows 保留端口段里**（Hyper-V/WSL 会动态占段）。用 `netsh interface ipv4 show excludedportrange protocol=tcp` 查，然后换一个不在段内的 `WEB_PORT`（比如 5280）。后端 CORS 已放行 localhost 任意端口，不用改后端 |
 | 改了 `requirements.txt` 之后要装新包 | 这时必须自己构建：`docker compose build api`（见下） |
 
 ---

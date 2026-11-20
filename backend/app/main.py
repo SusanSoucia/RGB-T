@@ -49,11 +49,15 @@ app = FastAPI(
     description="反无人机检测与预警系统。接口契约见 docs/api.md。",
 )
 
-# 独立前端（frontend/app，跑在 5173）与后端不同源，需要放行跨域。
-# 只放行配置里列出的来源，不用通配符——避免把带凭证的接口暴露给任意站点。
+# 独立前端与后端不同源，需要放行跨域。
+#
+# 除了配置里列出的来源，再用正则放行「本机任意端口」：
+# Windows 的保留端口段会变（实测 5142–5241 被 Hyper-V 占掉，5173 正好在里面），
+# 前端被迫换端口时不该还要改后端。只放行 localhost/127.0.0.1，不放公网来源。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
