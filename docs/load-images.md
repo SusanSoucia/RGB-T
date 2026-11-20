@@ -24,6 +24,54 @@
 
 ---
 
+## 0.5 端口速查（先看这张表）
+
+| 用途 | 你**在浏览器里**用 | 容器内 | 谁来配 |
+|---|---|---|---|
+| 前端页面 | **17880** | 5173 | `.env` 的 `WEB_PORT` |
+| 后端接口 | **17800** | 8000 | `.env` 的 `API_PORT` |
+| 数据库（一般不用连） | **15432** | 5432 | `.env` 的 `POSTGRES_PORT` |
+
+打开：**<http://localhost:17880/>**
+
+> **为什么不是 8000 / 5173**：这两个是最常见的开发端口，容易被别的服务占；
+> 而且 Windows 的 Hyper-V/WSL 会**动态保留整段端口**——实测 5173 曾被
+> 5142–5241 整段吃掉，前端容器直接起不来，报
+> `bind: An attempt was made to access a socket in a way forbidden by its access permissions`。
+> 所以本项目把宿主端口放在 15k–18k 冷门区间。
+>
+> 容器内端口**没有变**，所以容器里的脚本（e2e 等）不受影响。
+
+### ⚠️ 必须用新的 `.env`
+
+前端和后端端口是**两个地方各写一份**的：
+
+```
+.env                        API_PORT=17800    WEB_PORT=17880
+frontend/app/config.js      apiPort: 17800
+```
+
+所以：
+
+- **一定要** `cp .env.example .env`（示例里已经是新端口）
+- 如果你**沿用旧的 `.env`**（写着 8000/5173），而代码里的 `config.js` 是 17800，
+  就会出现**页面能打开、但所有接口都失败**（控制台里是一串 CORS / 连接错误）
+- 想换端口：`.env` 和 `config.js` **两个都要改**，然后
+  `docker compose --profile web up -d` 重建容器
+  （后端 CORS 已放行 localhost 任意端口，不用动后端代码）
+
+### 端口被占用/被保留怎么办
+
+```bash
+# 查 Windows 当前保留的端口段（Hyper-V/WSL 动态占用）
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+换一个不在保留段、也没被占用的端口，改 `.env` + `config.js` 即可。
+建议继续待在 15k–18k 区间，别用 49152 以上（那是动态端口区，极易被保留）。
+
+---
+
 ## 1. 先验完整性（重要，网盘下载容易坏）
 
 Git Bash 里：
