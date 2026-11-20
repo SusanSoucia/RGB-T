@@ -265,30 +265,38 @@ docker compose up -d --build
 
 组长这边导出已经构建好的镜像，组员直接导入，**完全不用构建、不用访问 Docker Hub**。
 
-```powershell
-# ① 组长：导出（当前 api 镜像约 1.15GB）
-docker save uav-alert-api:dev -o uav-alert-api-dev.tar
+**直接用脚本，别手敲**（会自动打包三个镜像 + 压缩 + 生成校验和）：
 
-# ② 压缩（Windows 11 自带 bsdtar 支持 gzip）
-tar -czf uav-alert-api-dev.tar.gz uav-alert-api-dev.tar
-Remove-Item uav-alert-api-dev.tar
+```bash
+bash scripts/export-images.sh
 ```
 
-把 `uav-alert-api-dev.tar.gz` 传到学校网盘/群里。组员：
+产物在 `dist/`（已 gitignore）：
 
-```powershell
-docker load -i uav-alert-api-dev.tar.gz
-docker images | Select-String uav-alert-api     # 确认已导入
-docker compose up -d                             # 不再加 --build
+```
+uav-images-20261120.tar.gz         实测约 300MB
+uav-images-20261120.tar.gz.sha256
 ```
 
-> ⚠️ 两个坑：
-> 1. 用 `--build` 会触发重新构建，导入的镜像就白导了 —— **组员起的时候不要带 `--build`**。
-> 2. 数据库镜像（`postgres:16-alpine`，420MB）也可以一起 `docker save` 导出：
->    `docker save postgres:16-alpine -o pg.tar`，组员 `docker load` 后连拉取都省了。
+把这两个文件传到网盘。**组员的上手步骤见 [docs/load-images.md](load-images.md)**，要点：
 
-**优点**：不依赖任何网络。
-**缺点**：镜像更新后要重新导一次；文件大，不适合频繁迭代。
+```bash
+sha256sum -c uav-images-20261120.tar.gz.sha256   # 先验完整性
+docker load -i uav-images-20261120.tar.gz        # 实测约 17 秒
+docker compose up -d                             # 不能加 --build
+docker compose exec api alembic upgrade head     # ← 建表（漏了会 500）
+docker compose exec api python -m app.scripts.seed_admin  # ← 建管理员
+```
+
+> ⚠️ 三个坑：
+> 1. 用 `--build` 会触发重新构建，导入的镜像就白导了 —— **组员起的时候不要带 `--build`**
+> 2. **镜像里没有数据**，必须跑 `alembic upgrade head` 建表，否则页面直接 500
+> 3. 镜像层本来就是压缩的，所以 1.4GB 的镜像导出后只有 **300MB**，
+>    再 gzip 也压不下去 —— 上传网盘时按 300MB 估计时间
+
+**优点**：不依赖任何网络，也绕开 apt/pip 的坑。
+**缺点**：改了 `Dockerfile` 或 `requirements.txt` 后要重新导一次。
+**日常改代码不用重导**——`backend/`、`frontend/` 都是 bind mount，改完保存就生效。
 
 ---
 
