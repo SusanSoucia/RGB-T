@@ -13,12 +13,15 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
 import numpy as np
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -121,7 +124,8 @@ class UltralyticsDetector:
             imgsz=imgsz or settings.default_imgsz,
             conf=settings.default_confidence,
             iou=settings.default_iou,
-            device="0",
+            device=settings.detect_device,  # 不再写死 "0"：容器里可能是 CPU
+            half=settings.detect_half,      # CPU 上必须 False
         )
 
     def detect(
@@ -137,26 +141,38 @@ class UltralyticsDetector:
         ]
 
 
-_detector: Detector | None = None
+_detectors: dict[str, Detector] = {}
 
 
 def get_detector(modality: str = "rgb") -> Detector:
-    """按配置返回检测器（进程内缓存）。"""
-    global _detector
+    """按配置返回检测器（进程内按模态缓存）。
+
+    缓存很关键：`UAVDetector.__init__` 里有 2 次预热推理，
+    每次重新构造要多花约 1 秒，不能每个任务都重建。
+    """
     if settings.detector_backend == "stub":
-        if _detector is None:
-            _detector = StubDetector()
-        return _detector
+        if "stub" not in _detectors:
+            _detectors["stub"] = StubDetector()
+        return _detectors["stub"]
 
     # 真实后端：RGB 和 IR 是两份权重，不能共用一个实例
     weights = settings.ir_weights if modality == "ir" else settings.rgb_weights
-    return UltralyticsDetector(weights)
+    if not weights:
+        # 这个模态还没训模型：回落到假检测器，而不是让整个任务失败。
+        # （比如现在只有热红外模型，可见光还没训）
+        if "stub" not in _detectors:
+            logger.warning("模态 %s 未配置权重，回落到 StubDetector", modality)
+            _detectors["stub"] = StubDetector()
+        return _detectors["stub"]
+
+    if modality not in _detectors:
+        _detectors[modality] = UltralyticsDetector(weights)
+    return _detectors[modality]
 
 
 def reset_detector() -> None:
     """测试用：清掉缓存，让配置变更生效。"""
-    global _detector
-    _detector = None
+    _detectors.clear()
 
 
 def _iou(a: Box, b: Box) -> float:

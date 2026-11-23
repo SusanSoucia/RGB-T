@@ -47,6 +47,44 @@ RUN set -e; \
 COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip && pip install -r /tmp/requirements.txt
 
+# ---------------- 推理依赖（torch + ultralytics）----------------
+# 用 build arg 控制 CPU / GPU 版本，一份 Dockerfile 出两种镜像：
+#   CPU（默认，镜像约 1.3GB）:  docker compose build api
+#   GPU（镜像约 3.3GB）      :  docker compose build api --build-arg TORCH_INDEX=cu126
+#
+# torch 和 torchvision 必须**成对编译**，所以这里故意不分别 pin 版本，
+# 交给 pip 解析出互相兼容的一对；只 pin ultralytics（与训练时一致 8.4.216）。
+#
+# GPU 版体积大是因为 CUDA 运行时全打包在 torch 的 wheel 里（约 2.6GB），
+# **不需要**在镜像里再装 CUDA toolkit —— 驱动由宿主机透传。
+#
+# 两个 pip 步骤**故意分成两层**：torch 那层有 2.6GB 下载，
+# 如果 ultralytics 那步失败，重试时这层能命中缓存，不用重下。
+#
+# 超时给到 180 秒、重试 15 次：实测国内直连 files.pythonhosted.org
+# 偶尔 15 秒读超时，把 2.6GB 下完却卡在一个小包的元数据上（踩过）。
+ARG TORCH_INDEX=cpu
+RUN pip install --no-cache-dir --timeout 180 --retries 15 \
+        torch torchvision \
+        --index-url https://download.pytorch.org/whl/${TORCH_INDEX}
+
+# ultralytics 走默认 PyPI。
+# 别用清华源：实测它对这个包返回空索引（"from versions: none"），
+# 而默认 PyPI 直连可用（只是慢一点，靠 timeout/retries 兜住）。
+RUN pip install --no-cache-dir --timeout 180 --retries 15 \
+        ultralytics==8.4.216
+
+# ultralytics 会把 opencv-python（GUI 版，不是 headless）装进来，
+# 它依赖 libxcb / libGL 这些 X 库，缺了 import 就报
+#   ImportError: libxcb.so.1: cannot open shared object file
+#
+# ⚠️ 这一层**必须放在 torch 之后**：如果合并到上面那个 apt 层，
+# 会把它后面的 2.6GB torch 缓存层全部作废，重试时又得重下。
+RUN apt-get update -o Acquire::Retries=3 \
+    && apt-get install -y --no-install-recommends -o Acquire::Retries=3 \
+        libgl1 libxcb1 libsm6 libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
 # ---------------- 开发 ----------------
 FROM base AS dev
 EXPOSE 8000

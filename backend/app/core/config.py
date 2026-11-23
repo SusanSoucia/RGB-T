@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     detector_backend: str = "stub"
     rgb_weights: str = ""
     ir_weights: str = ""
+    # 推理设备："0" = 第一块 GPU；"cpu" = 纯 CPU。
+    # 容器里没有 GPU 时必须设 cpu，否则 ultralytics 报 invalid device。
+    detect_device: str = "cpu"
+    # 半精度只在 GPU 上有意义（CPU 上会报错），默认关。
+    detect_half: bool = False
 
     # ---- 标注视频导出 ----
     render_dir: str = "/data/uploads/renders"

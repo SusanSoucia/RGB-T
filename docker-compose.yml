@@ -49,11 +49,31 @@ services:
       # 开放自主注册（需求说明书 FR-01 那条"不开放注册"已确认是笔误）。
       # 想临时关掉（比如演示前锁定）就改成 "false"，注册接口会返回 REGISTER_DISABLED。
       ALLOW_SELF_REGISTER: ${ALLOW_SELF_REGISTER:-true}
+      # ---- 检测模型 ----
+      # stub = 假框（模型没训好时用）；ultralytics = 加载 ml/weights 下的真实权重
+      DETECTOR_BACKEND: ${DETECTOR_BACKEND:-stub}
+      IR_WEIGHTS: ${IR_WEIGHTS:-/app/ml/weights/ir_yolo11s_640.pt}
+      # ⚠️ 可见光模型还没训，这里先指同一个热红外模型**占位**。
+      #    这样单张上传（判定为 rgb 模式）也能跑真模型，不会回落成假框。
+      #    训出 rgb 权重后改成 /app/ml/weights/rgb_yolo11s_640.pt。
+      RGB_WEIGHTS: ${RGB_WEIGHTS:-/app/ml/weights/ir_yolo11s_640.pt}
+      # 推理设备："0"=GPU；"cpu"=纯 CPU。半精度只有 GPU 能用。
+      DETECT_DEVICE: ${DETECT_DEVICE:-0}
+      DETECT_HALF: ${DETECT_HALF:-true}
       # Windows 上 bind mount 的文件变更事件常常不触发，
       # 打开轮询才能让 uvicorn --reload 真正生效（代价是一点 CPU）
       WATCHFILES_FORCE_POLLING: "true"
     ports:
       - "${API_PORT:-8000}:8000"
+    # 把宿主机的 GPU 透传给容器（镜像里不需要 CUDA toolkit，驱动由宿主提供）
+    # 容器里验一句：docker compose exec -T api nvidia-smi
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     volumes:
       - ./backend:/app          # 代码热更新
       # 挂到 /app/ml 而不是 /opt/ml：这样 `python -m ml.datasets.xxx` 能直接跑，

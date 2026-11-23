@@ -541,3 +541,106 @@ docker compose --profile web up -d
 - [ ] `docker compose down && docker compose up -d` 能干净重建
 
 八条全过，环境就算搭好了，可以开始写业务代码。
+
+---
+
+## GPU 推理（可选，模型训好后才有意义）
+
+### 前置：宿主机条件
+
+Docker 用宿主机的 NVIDIA 驱动，**镜像里不需要装 CUDA toolkit**。
+本机实测（RTX 4050 Laptop / 驱动 596.49）：
+
+```powershell
+docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+```
+
+能看到显卡就说明 Docker 已注册 `nvidia` runtime，可以直接用。
+**不需要**在 WSL 里装 CUDA，也不需要给 Docker Desktop 额外配什么。
+
+### 构建 GPU 版 api 镜像
+
+```bash
+# GPU 版（体积 12.2GB！见下）
+docker compose build api --build-arg TORCH_INDEX=cu126
+
+# CPU 版（默认，约 1.3GB）
+docker compose build api
+```
+
+`docker-compose.yml` 的 api 服务已经声明了 GPU 设备：
+
+```yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+```
+
+### ⚠️ GPU 版镜像有 12.2GB，别打包分发
+
+实测各层占用：
+
+| 层 | 大小 |
+|---|---|
+| torch + 整套 NVIDIA CUDA 库 | **6.76 GB** |
+| ultralytics | 666 MB |
+| X 库（libgl1/libxcb1…） | 212 MB |
+| 原有 Python 依赖 | 451 MB |
+
+体积大的原因：torch 2.14 依赖 `cuda-toolkit` 元包，把 cudnn/cublas/nccl/triton/nvshmem
+全套都装了（下载 2.6GB，解包后 6.76GB）。
+
+所以**分发方式是给配方，不是给镜像**：组员有 N 卡就自己跑
+`docker compose build api --build-arg TORCH_INDEX=cu126`。
+实测 `download.pytorch.org` 国内直连 12 MB/s，约 5 分钟下完；
+网盘传 12GB 反而更慢。给没显卡的同学仍然用 CPU 版（1.3GB）。
+
+### 两个踩过的坑
+
+**① ultralytics 会拉 opencv-python（GUI 版）**
+
+它依赖 `libgl1` / `libxcb1` / `libsm6` / `libxext6`，缺了 `import ultralytics` 直接报
+`ImportError: libxcb.so.1: cannot open shared object file`。
+
+Dockerfile 里**单独一层**装这几个 X 库，而且**必须放在 torch 之后**——
+合并到上面的 apt 层会让 6.76GB 的 torch 缓存层失效，重试时又得重下。
+
+**② 别用清华源装 ultralytics**
+
+实测清华源对这个包返回空索引（`from versions: none`），默认 PyPI 直连可用。
+
+### 配置
+
+`.env`：
+
+```ini
+DETECTOR_BACKEND=ultralytics
+DETECT_DEVICE=0
+DETECT_HALF=true
+```
+
+`docker-compose.yml` 里 `IR_WEIGHTS` / `RGB_WEIGHTS` 指向 `/app/ml/weights/*.pt`
+（宿主机 `ml/weights/`，该目录被 bind mount 到容器的 `/app/ml`）。
+
+> 只有热红外模型时，`RGB_WEIGHTS` 先指同一个文件占位；否则单张图（判定为 rgb 模式）
+> 会回落到 StubDetector，演示时看到的是假框。可见光模型训好后换掉这一行。
+
+### 验证
+
+```bash
+docker compose exec -T api nvidia-smi
+docker compose exec -T api python -c "import torch;print(torch.__version__, torch.cuda.is_available())"
+docker compose exec -T api python -c "
+import cv2, glob
+from app.services.detector import get_detector
+d = get_detector('ir')
+img = cv2.imread(sorted(glob.glob('/data/uploads/uavcb/building/thermal/*.jpg'))[0])
+print(d.name, len(d.detect(img, 'ir')), '个框')
+"
+```
+
+实测结果：RTX 4050 上 **10~13 ms/张**（640×512），热红外图各检出 1 个框。
