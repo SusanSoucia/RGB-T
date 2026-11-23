@@ -52,8 +52,9 @@ services:
       # ---- 检测模型 ----
       # stub = 假框（模型没训好时用）；ultralytics = 加载 ml/weights 下的真实权重
       DETECTOR_BACKEND: ${DETECTOR_BACKEND:-stub}
-      # 每个任务最多处理多少帧（会均匀铺满整段视频，不是只处理开头）
-      MAX_PROCESS_FRAMES: ${MAX_PROCESS_FRAMES:-200}
+      # 每个任务最多处理多少帧（会均匀铺满整段视频，不是只处理开头）。
+      # 取 100 是为了控制同步请求耗时（约 35 秒）；改异步后可上调。
+      MAX_PROCESS_FRAMES: ${MAX_PROCESS_FRAMES:-100}
       IR_WEIGHTS: ${IR_WEIGHTS:-/app/ml/weights/ir_yolo11s_640.pt}
       # ⚠️ 可见光模型还没训，这里先指同一个热红外模型**占位**。
       #    这样单张上传（判定为 rgb 模式）也能跑真模型，不会回落成假框。
