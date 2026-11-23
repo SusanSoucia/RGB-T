@@ -45,8 +45,11 @@ class Settings(BaseSettings):
     default_imgsz: int = 640
 
     # ---- 检测管线 ----
-    # MVP 阶段每个任务最多处理多少帧，防止一段长视频把单次请求拖死
-    max_process_frames: int = 30
+    # 每个任务最多处理多少帧。帧会**均匀铺满整段视频**（见 services/frames.py），
+    # 不会被长视频拖死，但取值决定时间分辨率：
+    #   200 帧 / 90 秒视频 -> 每 0.45 秒一个样本
+    # 实测解码约 600 帧/秒、GPU 推理约 10ms/帧，200 帧的 90 秒视频约 25 秒。
+    max_process_frames: int = 200
     # 推理后端：stub（假框，模型没训好时用）/ ultralytics（接真实权重）
     detector_backend: str = "stub"
     rgb_weights: str = ""

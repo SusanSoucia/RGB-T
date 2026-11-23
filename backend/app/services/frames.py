@@ -1,14 +1,27 @@
 """分帧。
 
-按 `frame_stride` 抽帧、最多处理 `settings.max_process_frames` 帧。
+按步长抽帧、最多处理 `settings.max_process_frames` 帧。
 
 **`frame_index` 一律是原始视频帧号**（0, stride, 2*stride, ...），
 不是"抽帧后的第几个样本"——这个语义必须全链路一致，
 否则坐标、时间戳、前端跳转全都会错（见 docs/api.md §1.4）。
+
+### 有效步长（重要）
+
+如果只按 `frame_stride=5` 顺序抽、抽满 limit 帧就停，长视频**只会处理开头一小段**：
+5610 帧的视频、limit=30 → 只处理 0~145 帧，覆盖率 0.5%，看起来像"只分析了前两秒"。
+
+所以这里会按**视频总长度反推一个更小的采样密度**：
+
+    eff_stride = max(stride, ceil(total_frames / limit))
+
+这样 limit 帧被均匀铺满整段视频。实测解码速度约 600 帧/秒，
+90 秒的视频整段解码约 9 秒，代价可接受。
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +71,12 @@ def iter_frame_pairs(
         return
 
     fps = cap_rgb.get(cv2.CAP_PROP_FPS) or 0.0
+    total = int(cap_rgb.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
+    # 有效步长：让 limit 帧均匀铺满整段，而不是只覆盖开头
+    eff_stride = stride
+    if total > 0:
+        eff_stride = max(stride, math.ceil(total / limit))
 
     try:
         idx = 0
@@ -73,7 +92,7 @@ def iter_frame_pairs(
             if not ok_rgb and frame_ir is None:
                 break
 
-            if idx % stride == 0:
+            if idx % eff_stride == 0:
                 if frame_rgb is None and frame_ir is None:
                     break
                 ts = int(idx / fps * 1000) if fps > 0 else None
