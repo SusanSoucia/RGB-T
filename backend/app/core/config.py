@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     detector_backend: str = "stub"
     rgb_weights: str = ""
     ir_weights: str = ""
+    # **每个模态各自的推理分辨率，必须和训练时一致**，否则精度会掉几个点：
+    #   热红外模型在 640x512 原生尺寸上训的 -> 640
+    #   可见光 1920x1080，为匹配目标像素尺度用 960 训的 -> 960
+    # default_imgsz 只作为兜底，正常走 rgb_imgsz / ir_imgsz。
+    rgb_imgsz: int = 960
+    ir_imgsz: int = 640
     # 推理设备："0" = 第一块 GPU；"cpu" = 纯 CPU。
     # 容器里没有 GPU 时必须设 cpu，否则 ultralytics 报 invalid device。
     detect_device: str = "cpu"

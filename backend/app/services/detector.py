@@ -166,7 +166,10 @@ def get_detector(modality: str = "rgb") -> Detector:
         return _detectors["stub"]
 
     if modality not in _detectors:
-        _detectors[modality] = UltralyticsDetector(weights)
+        # 分辨率必须跟训练时一致：热红外 640、可见光 960。
+        # 用一个全局 imgsz 会有一个模态被拉到不匹配的尺度上，精度掉几个点。
+        imgsz = settings.ir_imgsz if modality == "ir" else settings.rgb_imgsz
+        _detectors[modality] = UltralyticsDetector(weights, imgsz=imgsz)
     return _detectors[modality]
 
 
