@@ -255,3 +255,30 @@ frontend/app/
 **加新页面**的做法：建一个 `xxx.html`（引入 `common.js` + `pages/xxx.js`），
 在 `pages/xxx.js` 开头调 `await requireAuth(); mountTopbar('xxx');`，
 再把入口加到 `mountTopbar` 的 `<nav>` 里。
+
+
+---
+
+## 附：上传页的模态选择（待做，2026-11-24）
+
+上传页目前只有「可见光文件」和「红外文件（可选）」两个输入框，靠**文件槽位**推断模态：
+
+- 传了红外文件 → `has_ir=True` → 可能走 `ir` / `fusion`
+- 只传一个文件 → `has_ir=False` → 只能走 `rgb`
+
+**问题**：单张热红外图传进第一个槽位，会被判成 rgb 模式，
+用**可见光模型**去跑热红外图 → **0 检出**（接入真 RGB 模型后实测）。
+
+**建议**：在上传页加一个下拉——
+
+```
+素材类型： 自动 / 可见光 / 热红外
+```
+
+- 选「自动」→ 保持现在的槽位推断
+- 选「可见光」/「热红外」→ 直接指定 modality，不看槽位
+
+后端配合：`TaskCreate` 接受显式的 `ref_modality`（字段已存在，值域 `rgb` / `ir`，默认 `rgb`），
+`pipeline` 里优先用它、而不是靠 `has_ir` 推断。
+
+详细的根因与复现命令见 `docs/architecture.md` 附录二。

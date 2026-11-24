@@ -263,3 +263,90 @@ docker compose exec api python -m app.scripts.e2e_test
 - `run_task` 内部自己 commit，不需要额外事务包装
 - **并发会抢 GPU**：加一个简单的信号量（全局同一时刻只允许一个检测任务在跑），
   否则两个用户同时上传会让显存 OOM
+
+
+---
+
+## 附录二：接入真模型后暴露的两个集成问题（2026-11-24）
+
+### 问题 1：fusion 模式对同一架无人机会输出两个框
+
+**现象**（实测，同一帧成对上传，`DETECTOR_BACKEND=ultralytics`）：
+
+| 请求模式 | 实际模式 | 检出数 | 分数 |
+|---|---|---|---|
+| `auto` | rgb | 1 | 0.807 |
+| `ir` | ir | 1 | 0.791 |
+| **`fusion`** | fusion | **2** | 0.807 + 0.791 |
+
+同一架无人机被检出两次。
+
+**根因**：两个模态的归一化坐标**不在同一坐标系**。
+
+- 可见光模型输出的框是相对**整幅 16:9 画面**
+- 热红外模型输出的框是相对 **5:4 视场**（只覆盖可见光中间一块）
+- `merge_boxes` 用 IoU > 0.5 去重，但两组框的 IoU 远低于 0.5，匹配不上
+
+实测两组坐标的残差（UAV-CB 上量的）：即使按「居中裁 5:4」这个最优假设，
+中位残差仍有 **31 px（1.6% 图宽）**，纵向还有 **36 px 的固定偏移**——
+两台相机的安装基线不为零，不是简单裁剪能对齐的。
+
+**影响**：
+
+- fusion 模式目前**不能用于演示**（会看到两个框）
+- 任何结果级融合（包括 WBF）在坐标对齐之前都无法正确工作
+- 用户做的「块级模态选择」也依赖这一步
+
+**三种修法**：
+
+| 方案 | 做法 | 误差 | 适用场景 |
+|---|---|---|---|
+| **A. 相机标定（推荐）** | 拍棋盘格求一个固定单应矩阵 H，把热红外框映射到可见光坐标 | 1~2 px | 自己的设备，一次标定长期可用 |
+| B. 5:4 居中裁剪近似 | 假设热红外视场 = 可见光居中 5:4 区域 | ~1.6% 图宽 + 36 px 纵向偏移 | 只有 UAV-CB 这类没给标定参数的数据 |
+| C. 分屏显示 | 热红外块改用热红外画面显示 | 无误差（但画面割裂） | 播放器能同时拿到两路视频 |
+
+**先做 A**：真实系统必须标定，否则框会系统性偏移，演示效果会很差。
+
+### 问题 2：单张热红外图会被判成「可见光模式」
+
+**现象**：直接把一张热红外图传到上传页的「可见光」槽位 → 判定为 rgb 模式 →
+用**可见光模型**去跑热红外图 → **0 检出**。
+
+接入真 RGB 模型之前没暴露这个问题：当时 `RGB_WEIGHTS` 指向热红外模型占位，歪打正着能出框。
+
+**根因**：模态判定依据是「哪个通道的文件存在」（`has_ir`），**不是图像内容**。
+单个文件上传时 `has_ir=False`，`selector` 只能选 rgb。
+
+**两种修法**：
+
+| 方案 | 做法 | 工作量 |
+|---|---|---|
+| **A. 上传页加模态选择（推荐）** | 加「素材类型：自动 / 可见光 / 热红外」下拉；显式选择时直接指定 modality | 前端半天 + 后端 `TaskCreate` 接受显式 `ref_modality` |
+| B. 只写文档 | 热红外图必须放到「红外」槽位、并与可见光成对上传 | 0（但很容易踩） |
+
+推荐 A：用户不需要理解「槽位」概念，演示时也不会踩。
+
+### 复现命令
+
+```bash
+# 前提：ml/weights 下有两份权重，.env 里 DETECTOR_BACKEND=ultralytics
+docker compose exec -T api python -c "
+import httpx
+c = httpx.Client(base_url='http://localhost:8000', timeout=300)
+tok = c.post('/api/auth/login', json={'username':'admin','password':'Admin@12345'}).json()['access_token']
+H = {'Authorization': 'Bearer ' + tok}
+vp = '/data/uploads/uavcb/building/visible/building_visible_1_000002.jpg'
+tp = '/data/uploads/uavcb/building/thermal/building_thermal_1_000002.jpg'
+with open(vp,'rb') as fv, open(tp,'rb') as ft:
+    m = c.post('/api/media', headers=H, files={
+        'file': ('pair_visible.jpg', fv, 'image/jpeg'),
+        'ir_file': ('pair_thermal.jpg', ft, 'image/jpeg')}).json()
+for mode in ('auto','ir','fusion'):
+    t = c.post('/api/detect-tasks', headers=H,
+               json={'media_id': m['id'], 'requested_mode': mode}).json()
+    d = c.get(f\"/api/detect-tasks/{t['id']}/detections\", headers=H).json()
+    print(mode, '->', t.get('actual_mode'), len(d), [round(x['score'],3) for x in d])
+"
+```
+
+预期输出里 `fusion -> fusion 2 [...]`，就是问题 1 的症状。
