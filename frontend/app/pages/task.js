@@ -299,18 +299,30 @@
   let currentFrame = frames.length ? frames[0].frame_index : 0;
   let drawn = false;   // 首帧是否已经绘制过（见 updateOverlay 里的说明）
 
-  function showVideoError(reason) {
+  function showVideoError(detail) {
     badge.textContent = '';
     fitBox.innerHTML = `
       <div style="padding:34px 20px;text-align:center;color:#cbd5e1">
         <div style="font-size:14px;margin-bottom:6px">浏览器无法播放该视频</div>
         <div style="font-size:12px;color:#94a3b8;line-height:1.7">
-          ${esc(reason)}<br>
-          最常见的原因是文件使用了 <b>MPEG-4 Part 2（mp4v）</b> 编码，Chromium 内核不支持。<br>
-          请用 ffmpeg 转成 H.264 后重新上传：
-          <code style="color:#e2e8f0">ffmpeg -i in.mp4 -c:v libx264 -pix_fmt yuv420p out.mp4</code>
+          ${esc(detail)}<br>
+          常见原因：① 文件是 <b>MPEG-4 Part 2（mp4v）</b> 编码，Chromium 内核不支持；
+          ② 文件损坏或下载不完整。<br>
+          转码建议：<code style="color:#e2e8f0">ffmpeg -i in.mp4 -c:v libx264 -pix_fmt yuv420p out.mp4</code>
         </div>
       </div>`;
+  }
+
+  /** 把 MediaError 翻译成人话——只有它才是"真的解不了"的权威信号 */
+  function mediaErrorText(err) {
+    if (!err) return '未知错误。';
+    switch (err.code) {
+      case 1: return '播放被中止（MEDIA_ERR_ABORTED）。';
+      case 2: return '网络错误，文件读取中断（MEDIA_ERR_NETWORK）。';
+      case 3: return '解码失败，文件可能损坏（MEDIA_ERR_DECODE）。';
+      case 4: return '浏览器不支持这种编码（MEDIA_ERR_SRC_NOT_SUPPORTED）。';
+      default: return `未知错误（code=${err.code}）。`;
+    }
   }
 
   badge.textContent = '正在加载视频…';
@@ -321,11 +333,18 @@
     return;
   }
 
-  // 6 秒内拿不到元数据就认为解不了，避免无限等待
-  const watchdog = setTimeout(() => {
-    if (!vid.videoWidth) showVideoError('加载超时（无法解析视频头）。');
-  }, 6000);
-  vid.addEventListener('error', () => { clearTimeout(watchdog); showVideoError('视频解码失败。'); }, { once: true });
+  // ⚠️ 定时器**只做"慢"的提示，不断言"无法播放"**。
+  // 实测踩过：headless 的虚拟时间会快进定时器，30MB 的 blob 还在解码时就触发，
+  // 于是明明能播也被判成"浏览器无法播放"。权威信号只有 video 的 error 事件。
+  const slowTimer = setTimeout(() => {
+    if (!vid.videoWidth) badge.textContent = '视频加载较慢，仍在等待…';
+  }, 8000);
+
+  vid.addEventListener('loadedmetadata', () => clearTimeout(slowTimer), { once: true });
+  vid.addEventListener('error', () => {
+    clearTimeout(slowTimer);
+    showVideoError(mediaErrorText(vid.error));
+  }, { once: true });
 
   /** 找时间上最接近当前播放位置的"已处理帧" */
   function nearestFrame(ms) {

@@ -282,3 +282,49 @@ frontend/app/
 `pipeline` 里优先用它、而不是靠 `has_ir` 推断。
 
 详细的根因与复现命令见 `docs/architecture.md` 附录二。
+
+
+---
+
+## 附：演示视频与"黑屏"排查（2026-11-27）
+
+### 两段可用的测试素材
+
+用 UAV-CB 的连续帧合成（真实户外航拍，每帧都有无人机），可直接上传测试播放：
+
+| 文件 | 规格 | 路径 |
+|---|---|---|
+| `uavcb_outdoor_30s.mp4` | H.264 / 1280×720 / 30fps / 900 帧 / 28.6 MB | `demo_videos/`、容器内 `/data/uploads/demo/` |
+| `uavcb_outdoor_6s_360p.webm` | VP9 / 640×360 / 30fps / 180 帧 / 2.2 MB | 同上 |
+
+生成方式：从 `uavcb/building/visible/building_visible_1_*.jpg` 取连续帧 →
+`imageio-ffmpeg` 的 ffmpeg 编码（容器里没有系统 ffmpeg，用 pip 包自带的那份）。
+
+### ⚠️ headless 截图判"黑屏"不可信
+
+用 `msedge --headless=new --virtual-time-budget=N --screenshot` 验证播放时会踩一个坑：
+
+**虚拟时间会快进定时器，但不会等网络**。所以 blob 还在下载时截图就发生了，
+视频区显示黑底 + "加载中"。实测规律与**文件大小**相关，与编码无关：
+
+| 素材 | 大小 | headless 截图 |
+|---|---|---|
+| patrol_demo.webm | 22 KB | ✅ 出画 |
+| tiny_1s_160p.webm | 21 KB | ✅ 出画 |
+| uavcb_outdoor_6s_360p.webm | 2.2 MB | ❌ 黑屏 |
+| uavcb_outdoor_30s.mp4 | 28.6 MB | ❌ 黑屏 |
+| uavcb_outdoor_6s_360p.mp4 | 2.0 MB | ❌ 黑屏 |
+
+**结论**：headless 里黑屏只代表"截图时还没加载完"，不代表真实浏览器放不了。
+要判断编码是否真的不支持，看 `video.error`（`MediaError.code=4` 才是"不支持该编码"）。
+
+### 顺带修掉的一个真 bug
+
+原来详情页用了 6 秒看门狗：超时就断言"浏览器无法播放该视频，最常见原因是 mp4v"。
+实际在慢网络 / 大文件下，**定时器会先于解码完成触发，误报"无法播放"**（本次就是被它误导）。
+
+现在改成：
+
+- 只有 `video` 的 `error` 事件才展示"无法播放"，文案按 `MediaError.code` 分别说明
+- 超时只提示"视频加载较慢，仍在等待…"，不断言失败
+- `loadedmetadata` 一到就清掉定时器
